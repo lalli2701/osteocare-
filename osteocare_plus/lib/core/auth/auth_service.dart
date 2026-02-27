@@ -16,7 +16,7 @@ class AuthService {
   static const _tokenKey = 'auth_token';
   static const _userDataKey = 'user_data';
 
-  /// Sign up a new user
+  /// Sign up a new user and auto-login
   Future<Map<String, dynamic>> signUp({
     required String fullName,
     required String phoneNumber,
@@ -36,6 +36,30 @@ class AuthService {
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 201) {
+        // Auto-login after successful signup
+        final loginResp = await http.post(
+          Uri.parse('$baseUrl/api/auth/login'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'phone_number': phoneNumber,
+            'password': password,
+          }),
+        );
+
+        if (loginResp.statusCode == 200) {
+          final loginData = jsonDecode(loginResp.body);
+          // Store token and user data
+          await _storage.write(key: _tokenKey, value: loginData['access_token']);
+          await _storage.write(key: _userDataKey, value: jsonEncode(loginData['user']));
+          
+          // Update session
+          UserSession.instance.userId = loginData['user']['id'].toString();
+          UserSession.instance.userName = loginData['user']['full_name'];
+          UserSession.instance.phone = loginData['user']['phone_number'];
+          
+          return {'success': true, 'message': 'Account created and logged in'};
+        }
+        
         return {'success': true, 'message': data['message']};
       } else {
         return {'success': false, 'error': data['error'] ?? 'Signup failed'};
