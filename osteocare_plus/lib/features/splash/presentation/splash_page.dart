@@ -1,8 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../auth/presentation/login_page.dart';
+import '../../onboarding/presentation/landing_page.dart';
 import '../../dashboard/presentation/dashboard_page.dart';
 import '../../../core/auth/auth_service.dart';
 
@@ -28,20 +27,16 @@ class _SplashPageState extends State<SplashPage> {
   }
 
   Future<void> _navigate() async {
-    await Future<void>.delayed(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(seconds: 2));
 
-    final isLoggedIn = FirebaseAuth.instance.currentUser != null;
-    if (isLoggedIn) {
-      // Load profile into our in-memory session for convenience.
-      await AuthService.instance.loadCurrentUserIfAny();
-    }
+    final isLoggedIn = await AuthService.instance.isLoggedIn();
 
     if (!mounted) return;
 
     if (isLoggedIn) {
       context.go(DashboardPage.routePath);
     } else {
-      context.go(LoginPage.routePath);
+      context.go(LandingPage.routePath);
     }
   }
 
