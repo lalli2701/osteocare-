@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../dashboard/presentation/dashboard_page.dart';
+import '../../chatbot/presentation/assistant_fab.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
@@ -15,6 +16,8 @@ class AboutPage extends StatelessWidget {
       appBar: AppBar(
         title: const Text('About OsteoCare+'),
       ),
+      floatingActionButton: const AssistantFab(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

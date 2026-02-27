@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../core/auth/user_session.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/tts_service.dart';
+import '../../chatbot/presentation/assistant_fab.dart';
 
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key, this.riskLevel});
@@ -144,6 +145,8 @@ class _TasksPageState extends State<TasksPage> {
       appBar: AppBar(
         title: const Text('Your tasks & history'),
       ),
+      floatingActionButton: const AssistantFab(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

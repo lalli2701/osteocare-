@@ -46,6 +46,7 @@ dependencies:
 
   # Networking
   dio: ^5.4.0
+  http: ^1.1.0
 
   # Notifications and text-to-speech
   flutter_local_notifications: ^21.0.0-dev.2
