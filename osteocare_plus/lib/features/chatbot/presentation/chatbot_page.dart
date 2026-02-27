@@ -45,7 +45,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
 
     String reply;
     try {
-      final userId = UserSession.instance.uid ??
+      final userId = UserSession.instance.userId ??
           UserSession.instance.phone ??
           'anonymous';
 
@@ -186,7 +186,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
         children: [
           Container(
             width: double.infinity,
-            color: theme.colorScheme.surfaceVariant,
+            color: theme.colorScheme.surfaceContainerHighest,
             padding: const EdgeInsets.all(12),
             child: const Text(
               'This chatbot is for education only and does not provide medical diagnosis or treatment.',
@@ -203,7 +203,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
                     msg.fromUser ? Alignment.centerRight : Alignment.centerLeft;
                 final color = msg.fromUser
                     ? theme.colorScheme.primary
-                    : theme.colorScheme.surfaceVariant;
+                    : theme.colorScheme.surfaceContainerHighest;
                 final textColor =
                     msg.fromUser ? Colors.white : theme.colorScheme.onSurface;
                 return Align(

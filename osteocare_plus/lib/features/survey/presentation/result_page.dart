@@ -86,7 +86,7 @@ class ResultPage extends StatelessWidget {
                         vertical: 16,
                       ),
                       decoration: BoxDecoration(
-                        color: _colorForRisk(riskLevel).withOpacity(0.1),
+                        color: _colorForRisk(riskLevel).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: _colorForRisk(riskLevel),
@@ -161,7 +161,7 @@ class ResultPage extends StatelessWidget {
                               Container(
                                 padding: const EdgeInsets.all(4),
                                 decoration: BoxDecoration(
-                                  color: _colorForRisk(riskLevel).withOpacity(0.2),
+                                  color: _colorForRisk(riskLevel).withValues(alpha: 0.2),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Text(
@@ -183,7 +183,7 @@ class ResultPage extends StatelessWidget {
                             ],
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                 ),
@@ -228,7 +228,7 @@ class ResultPage extends StatelessWidget {
                             ),
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                 ),

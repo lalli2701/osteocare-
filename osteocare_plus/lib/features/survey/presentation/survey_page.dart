@@ -17,7 +17,7 @@ class SurveyPage extends StatefulWidget {
 
 class _SurveyPageState extends State<SurveyPage> {
   List<Map<String, dynamic>> _questions = [];
-  Map<String, dynamic> _formData = {};
+  final Map<String, dynamic> _formData = {};
   int _currentQuestionIndex = 0;
   bool _isLoading = true;
   bool _isSubmitting = false;
@@ -165,7 +165,7 @@ class _SurveyPageState extends State<SurveyPage> {
 
       case 'select':
         return DropdownButtonFormField<String>(
-          value: _formData[fieldName] as String?,
+          initialValue: _formData[fieldName] as String?,
           decoration: InputDecoration(
             labelText: question['question'],
             border: const OutlineInputBorder(),
@@ -268,7 +268,7 @@ class _SurveyPageState extends State<SurveyPage> {
                     },
                   ),
                 );
-              }).toList(),
+              }),
           ],
         );
 

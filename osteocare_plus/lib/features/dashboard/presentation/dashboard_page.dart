@@ -5,7 +5,6 @@ import '../../../core/auth/user_session.dart';
 import '../../survey/presentation/survey_page.dart';
 import '../../survey/presentation/result_page.dart';
 import '../../dashboard/presentation/tasks_page.dart';
-import '../../chatbot/presentation/chatbot_page.dart';
 import '../../chatbot/presentation/assistant_fab.dart';
 
 class DashboardPage extends StatelessWidget {

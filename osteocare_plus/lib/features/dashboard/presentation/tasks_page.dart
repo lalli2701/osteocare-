@@ -110,7 +110,7 @@ class _TasksPageState extends State<TasksPage> {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>>? _buildHistoryStream() {
-    final uid = UserSession.instance.uid;
+    final uid = UserSession.instance.userId;
     if (uid == null) return null;
 
     return FirebaseFirestore.instance
