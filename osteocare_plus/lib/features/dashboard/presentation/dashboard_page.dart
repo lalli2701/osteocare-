@@ -6,6 +6,7 @@ import '../../survey/presentation/survey_page.dart';
 import '../../survey/presentation/result_page.dart';
 import '../../dashboard/presentation/tasks_page.dart';
 import '../../chatbot/presentation/chatbot_page.dart';
+import '../../chatbot/presentation/assistant_fab.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
@@ -38,6 +39,8 @@ class DashboardPage extends StatelessWidget {
       appBar: AppBar(
         title: const Text('OsteoCare+ Dashboard'),
       ),
+      floatingActionButton: const AssistantFab(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -87,14 +90,6 @@ class DashboardPage extends StatelessWidget {
                 TasksPage.routePath,
                 extra: lastRisk,
               ),
-            ),
-          ),
-          Card(
-            child: ListTile(
-              title: const Text('Ask the OsteoCare+ assistant'),
-              subtitle: const Text('Chat about osteoporosis prevention and care'),
-              trailing: const Icon(Icons.chat_bubble_outline),
-              onTap: () => context.go(ChatbotPage.routePath),
             ),
           ),
         ],

@@ -1,9 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
-import '../../../core/auth/user_session.dart';
 import '../presentation/result_page.dart';
+import '../../chatbot/presentation/assistant_fab.dart';
 
 class SurveyPage extends StatefulWidget {
   const SurveyPage({super.key});
@@ -15,378 +16,390 @@ class SurveyPage extends StatefulWidget {
 }
 
 class _SurveyPageState extends State<SurveyPage> {
-  final _formKey = GlobalKey<FormState>();
-
-  final _nameController = TextEditingController();
-  final _ageController = TextEditingController();
-  final _weightController = TextEditingController();
-
-  bool _hadFracture = false;
-  String? _fractureDuration;
-
-  bool _hadSurgery = false;
-  String? _surgeryDuration;
-
-  bool _familyHistory = false;
-  bool _steroidUse = false;
-  String? _steroidDuration;
-
-  bool _smoking = false;
-  bool _alcohol = false;
-  bool _lowActivity = false;
-
+  List<Map<String, dynamic>> _questions = [];
+  Map<String, dynamic> _formData = {};
+  int _currentQuestionIndex = 0;
+  bool _isLoading = true;
   bool _isSubmitting = false;
+  String? _errorMessage;
 
   @override
-  void dispose() {
-    _nameController.dispose();
-    _ageController.dispose();
-    _weightController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadQuestions();
   }
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _loadQuestions() async {
+    try {
+      // Fetch questions from backend API
+      final response = await http.get(
+        Uri.parse('http://localhost:5000/survey/questions'),
+      ).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception('Request timeout'),
+      );
 
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _questions = List<Map<String, dynamic>>.from(data['questions'] ?? []);
+          _isLoading = false;
+          // Initialize form data with empty values
+          for (var q in _questions) {
+            _formData[q['field_name']] = null;
+          }
+        });
+      } else {
+        throw Exception('Failed to load questions: ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error loading survey: ${e.toString()}';
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _nextQuestion() {
+    // Validate current question if required
+    final currentQ = _questions[_currentQuestionIndex];
+    final fieldName = currentQ['field_name'];
+    final isRequired = currentQ['required'] == true;
+    
+    if (isRequired) {
+      // Special handling for height_weight type that has sub_fields
+      if (fieldName == 'height_weight') {
+        final heightCm = _formData['height_cm'];
+        final weightKg = _formData['weight_kg'];
+        if (heightCm == null || weightKg == null || heightCm == 0 || weightKg == 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enter both height and weight')),
+          );
+          return;
+        }
+      } else {
+        // Regular validation for other field types
+        if (_formData[fieldName] == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please answer this question before continuing')),
+          );
+          return;
+        }
+      }
+    }
+
+    if (_currentQuestionIndex < _questions.length - 1) {
+      setState(() => _currentQuestionIndex++);
+    } else {
+      _submitSurvey();
+    }
+  }
+
+  void _previousQuestion() {
+    if (_currentQuestionIndex > 0) {
+      setState(() => _currentQuestionIndex--);
+    }
+  }
+
+  Future<void> _submitSurvey() async {
     setState(() => _isSubmitting = true);
 
-    await Future<void>.delayed(const Duration(milliseconds: 600));
-
-    final riskLevel = _calculateRiskLevel();
-    UserSession.instance.setLastRiskLevel(riskLevel);
-
-    // Save this survey in Firestore under the authenticated user so it can
-    // appear in the tasks/history page.
     try {
-      final uid = UserSession.instance.uid;
-      final age = int.tryParse(_ageController.text.trim());
-      final weight = double.tryParse(_weightController.text.trim());
+      // Prepare survey data for submission
+      final Map<String, dynamic> surveyPayload = {
+        'survey_data': _formData,
+      };
 
-      if (uid != null) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .collection('surveys')
-            .add({
-          'name': _nameController.text.trim(),
-          'age': age,
-          'weight': weight,
-          'hadFracture': _hadFracture,
-          'fractureDuration': _fractureDuration,
-          'hadSurgery': _hadSurgery,
-          'surgeryDuration': _surgeryDuration,
-          'familyHistory': _familyHistory,
-          'steroidUse': _steroidUse,
-          'steroidDuration': _steroidDuration,
-          'smoking': _smoking,
-          'alcohol': _alcohol,
-          'lowActivity': _lowActivity,
-          'riskLevel': riskLevel,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+      final response = await http.post(
+        Uri.parse('http://localhost:5000/survey/submit'),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': 'user_${DateTime.now().millisecondsSinceEpoch}',
+          'X-API-Key': 'dev-key',
+        },
+        body: jsonEncode(surveyPayload),
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw Exception('Request timeout'),
+      );
+
+      if (response.statusCode == 200) {
+        final result = jsonDecode(response.body);
+        if (mounted) {
+          context.go(ResultPage.routePath, extra: result);
+        }
+      } else {
+        throw Exception('Survey submission failed: ${response.statusCode}');
       }
-    } catch (_) {
-      // If saving fails (for example offline), continue without blocking the user.
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error submitting survey: ${e.toString()}')),
+        );
+        setState(() => _isSubmitting = false);
+      }
     }
-
-    if (!mounted) return;
-    setState(() => _isSubmitting = false);
-
-    context.go(ResultPage.routePath, extra: riskLevel);
   }
 
-  String _calculateRiskLevel() {
-    int score = 0;
+  Widget _buildQuestionInput(Map<String, dynamic> question) {
+    final fieldName = question['field_name'];
+    final type = question['type'];
+    final options = question['options'] as List?;
 
-    final age = int.tryParse(_ageController.text.trim()) ?? 0;
-    final weight = double.tryParse(_weightController.text.trim()) ?? 0;
+    switch (type) {
+      case 'number_input':
+        return TextFormField(
+          keyboardType: const TextInputType.numberWithOptions(decimal: false),
+          decoration: InputDecoration(
+            labelText: question['question'],
+            hintText: 'Enter a number',
+            border: const OutlineInputBorder(),
+            helperText: question['help_text'],
+          ),
+          onChanged: (value) {
+            setState(() {
+              _formData[fieldName] = value.isEmpty ? null : int.tryParse(value);
+            });
+          },
+        );
 
-    // Age weighting: strongest after 65, then 50–64, then 40–49.
-    if (age >= 65) {
-      score += 3;
-    } else if (age >= 50) {
-      score += 2;
-    } else if (age >= 40) {
-      score += 1;
-    }
+      case 'select':
+        return DropdownButtonFormField<String>(
+          value: _formData[fieldName] as String?,
+          decoration: InputDecoration(
+            labelText: question['question'],
+            border: const OutlineInputBorder(),
+            helperText: question['help_text'],
+          ),
+          items: options
+              ?.map((opt) => DropdownMenuItem<String>(
+                    value: opt['value'],
+                    child: Text(opt['label']),
+                  ))
+              .toList(),
+          onChanged: (value) {
+            setState(() => _formData[fieldName] = value);
+          },
+        );
 
-    // Low body weight: stronger risk if < 50 kg.
-    if (weight > 0 && weight < 50) {
-      score += 3;
-    } else if (weight >= 50 && weight < 60) {
-      score += 2;
-    }
+      case 'yes_no':
+        final currentValue = _formData[fieldName] as String?;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              question['question'],
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              question['help_text'] ?? '',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => setState(() => _formData[fieldName] = 'Yes'),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: currentValue == 'Yes' ? Colors.blue : null,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: Text(
+                      'Yes',
+                      style: TextStyle(
+                        color: currentValue == 'Yes' ? Colors.white : null,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => setState(() => _formData[fieldName] = 'No'),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: currentValue == 'No' ? Colors.blue : null,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: Text(
+                      'No',
+                      style: TextStyle(
+                        color: currentValue == 'No' ? Colors.white : null,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
 
-    // Previous fracture: more weight and higher if very recent.
-    if (_hadFracture) {
-      score += 3;
-      if (_fractureDuration == '<6_months') {
-        score += 2;
-      } else if (_fractureDuration == '6_12_months') {
-        score += 1;
-      }
-    }
+      case 'height_weight':
+        final subFields = question['sub_fields'] as List?;
+        return Column(
+          children: [
+            Text(
+              question['question'],
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              question['help_text'] ?? '',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+            if (subFields != null)
+              ...subFields.map((subField) {
+                final subFieldName = subField['field_name'];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: TextFormField(
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: subField['label'],
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _formData[subFieldName] =
+                            value.isEmpty ? null : double.tryParse(value);
+                      });
+                    },
+                  ),
+                );
+              }).toList(),
+          ],
+        );
 
-    // Major surgery / operation (arthritis / cancer treatment etc.).
-    if (_hadSurgery) {
-      score += 2;
-      if (_surgeryDuration == '<6_months') {
-        score += 1;
-      }
-    }
-
-    // Family history.
-    if (_familyHistory) {
-      score += 2;
-    }
-
-    // Steroid medicines.
-    if (_steroidUse) {
-      score += 2;
-      if (_steroidDuration == '>1_year') {
-        score += 1;
-      }
-    }
-
-    // Lifestyle factors.
-    if (_smoking) score += 1;
-    if (_alcohol) score += 1;
-    if (_lowActivity) score += 1;
-
-    if (score <= 3) {
-      return 'low';
-    } else if (score <= 7) {
-      return 'moderate';
-    } else {
-      return 'high';
+      default:
+        return Text('Unknown question type: $type');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Bone Health Survey')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Osteoporosis risk survey'),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
+    if (_errorMessage != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Bone Health Survey')),
+        body: Center(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                'Tell us a bit about you',
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) =>
-                    (value == null || value.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _ageController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Age (years)',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  final text = value?.trim() ?? '';
-                  if (text.isEmpty) return 'Required';
-                  final age = int.tryParse(text);
-                  if (age == null || age <= 0) return 'Enter a valid age.';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _weightController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Weight (kg)',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  final text = value?.trim() ?? '';
-                  if (text.isEmpty) return 'Required';
-                  final weight = double.tryParse(text);
-                  if (weight == null || weight <= 0) {
-                    return 'Enter a valid weight.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'Fractures and surgeries',
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              SwitchListTile(
-                title: const Text('Have you had any fractures before?'),
-                value: _hadFracture,
-                onChanged: (val) {
-                  setState(() {
-                    _hadFracture = val;
-                    if (!val) _fractureDuration = null;
-                  });
-                },
-              ),
-              if (_hadFracture)
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 8),
-                  child: DropdownButtonFormField<String>(
-                    value: _fractureDuration,
-                    decoration: const InputDecoration(
-                      labelText: 'When did it happen?',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: '<6_months',
-                        child: Text('Within the last 6 months'),
-                      ),
-                      DropdownMenuItem(
-                        value: '6_12_months',
-                        child: Text('6–12 months ago'),
-                      ),
-                      DropdownMenuItem(
-                        value: '>1_year',
-                        child: Text('More than 1 year ago'),
-                      ),
-                    ],
-                    onChanged: (val) => setState(() => _fractureDuration = val),
-                  ),
-                ),
-              SwitchListTile(
-                title: const Text(
-                  'Have you had any major bone/orthopedic surgery or operation?',
-                ),
-                value: _hadSurgery,
-                onChanged: (val) {
-                  setState(() {
-                    _hadSurgery = val;
-                    if (!val) _surgeryDuration = null;
-                  });
-                },
-              ),
-              if (_hadSurgery)
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 8),
-                  child: DropdownButtonFormField<String>(
-                    value: _surgeryDuration,
-                    decoration: const InputDecoration(
-                      labelText: 'When was it?',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: '<6_months',
-                        child: Text('Within the last 6 months'),
-                      ),
-                      DropdownMenuItem(
-                        value: '6_12_months',
-                        child: Text('6–12 months ago'),
-                      ),
-                      DropdownMenuItem(
-                        value: '>1_year',
-                        child: Text('More than 1 year ago'),
-                      ),
-                    ],
-                    onChanged: (val) => setState(() => _surgeryDuration = val),
-                  ),
-                ),
+              Text(_errorMessage!),
               const SizedBox(height: 16),
-              Text(
-                'Other risk factors',
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              SwitchListTile(
-                title: const Text(
-                  'Family history of osteoporosis or hip fracture?',
-                ),
-                value: _familyHistory,
-                onChanged: (val) => setState(() => _familyHistory = val),
-              ),
-              SwitchListTile(
-                title: const Text('Long-term steroid medication use?'),
-                value: _steroidUse,
-                onChanged: (val) {
+              ElevatedButton(
+                onPressed: () {
                   setState(() {
-                    _steroidUse = val;
-                    if (!val) _steroidDuration = null;
+                    _isLoading = true;
+                    _errorMessage = null;
                   });
+                  _loadQuestions();
                 },
-              ),
-              if (_steroidUse)
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 8),
-                  child: DropdownButtonFormField<String>(
-                    value: _steroidDuration,
-                    decoration: const InputDecoration(
-                      labelText: 'For how long?',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: '<3_months',
-                        child: Text('Less than 3 months'),
-                      ),
-                      DropdownMenuItem(
-                        value: '3_12_months',
-                        child: Text('3–12 months'),
-                      ),
-                      DropdownMenuItem(
-                        value: '>1_year',
-                        child: Text('More than 1 year'),
-                      ),
-                    ],
-                    onChanged: (val) => setState(() => _steroidDuration = val),
-                  ),
-                ),
-              SwitchListTile(
-                title: const Text('Do you smoke currently?'),
-                value: _smoking,
-                onChanged: (val) => setState(() => _smoking = val),
-              ),
-              SwitchListTile(
-                title: const Text('Do you drink alcohol very often?'),
-                value: _alcohol,
-                onChanged: (val) => setState(() => _alcohol = val),
-              ),
-              SwitchListTile(
-                title: const Text('Is your daily physical activity very low?'),
-                value: _lowActivity,
-                onChanged: (val) => setState(() => _lowActivity = val),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _isSubmitting ? null : _submit,
-                  child: _isSubmitting
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('See my risk level'),
-                ),
+                child: const Text('Try Again'),
               ),
             ],
           ),
         ),
+      );
+    }
+
+    if (_questions.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Bone Health Survey')),
+        body: const Center(child: Text('No questions available')),
+      );
+    }
+
+    final currentQuestion = _questions[_currentQuestionIndex];
+    final progress = (_currentQuestionIndex + 1) / _questions.length;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Bone Health Survey'),
+        elevation: 0,
+      ),
+      floatingActionButton: const AssistantFab(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      body: Column(
+        children: [
+          // Progress bar
+          LinearProgressIndicator(value: progress),
+          // Question number
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Question ${_currentQuestionIndex + 1} of ${_questions.length}',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ),
+          ),
+          // Question content
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              child: _buildQuestionInput(currentQuestion),
+            ),
+          ),
+          // Navigation buttons
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Row(
+              children: [
+                if (_currentQuestionIndex > 0) ...[
+                  OutlinedButton(
+                    onPressed: _previousQuestion,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                    ),
+                    child: const Text('Back'),
+                  ),
+                  const SizedBox(width: 16),
+                ] else ...[
+                  const SizedBox(width: 0),
+                ],
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _isSubmitting ? null : _nextQuestion,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : Text(
+                            _currentQuestionIndex == _questions.length - 1
+                                ? 'Submit'
+                                : 'Next',
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

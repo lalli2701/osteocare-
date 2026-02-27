@@ -38,7 +38,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: ResultPage.routePath,
         builder: (context, state) => ResultPage(
-          riskLevel: state.extra is String ? state.extra as String : null,
+          result: state.extra,
         ),
       ),
       GoRoute(

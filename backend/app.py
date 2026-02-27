@@ -1,0 +1,933 @@
+import os
+from dotenv import load_dotenv
+import json
+import joblib
+import numpy as np
+import pandas as pd
+import sqlite3
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+# Load environment variables from backend/.env if present
+load_dotenv()
+
+# Paths for artifacts (place your saved model and feature list here)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _resolve_path(path_val: str, default_rel: str) -> str:
+    """Resolve artifact path to an absolute path under backend/ even if given relative."""
+    if path_val:
+        candidate = path_val
+    else:
+        candidate = default_rel
+    if os.path.isabs(candidate):
+        return candidate
+    return os.path.join(BASE_DIR, candidate)
+
+
+MODEL_PATH = _resolve_path(os.environ.get("MODEL_PATH", ""), os.path.join("artifacts", "calibrated_model.pkl"))
+FEATURES_PATH = _resolve_path(os.environ.get("FEATURES_PATH", ""), os.path.join("artifacts", "feature_order.json"))
+DB_PATH = _resolve_path(os.environ.get("USER_DB_PATH", ""), "users.db")
+API_KEY = os.environ.get("API_KEY", "")
+
+app = Flask(__name__)
+CORS(app)
+def _rate_limit_key():
+    user_id = request.headers.get("X-User-Id", "").strip()
+    if user_id:
+        return f"user:{user_id}"
+    return get_remote_address()
+
+
+limiter = Limiter(_rate_limit_key, app=app, default_limits=["100 per hour"])  # basic abuse guard
+
+_model = None
+_feature_order: list[str] | None = None
+
+
+# ------------------------------------------
+# Form → model feature mapping helpers
+# ------------------------------------------
+FRIENDLY_BOOL_MAP = {
+    "MCQ366A": "memory_issue",
+    "MCQ371A": "mobility_climb",
+    "MCQ371D": "stand_long",
+    "MCQ092": "activity_limited",
+    "MCQ160G": "arthritis",
+    "MCQ160L": "thyroid",
+    "MCQ160K": "lung_disease",
+    "MCQ160B": "heart_failure",
+    "MCQ230A": "smoking",
+}
+
+FRIENDLY_ALCOHOL_KEY = "alcohol"  # maps to MCQ550
+FRIENDLY_HEALTH_KEY = "general_health"  # maps to MCQ025
+FRIENDLY_CALCIUM_KEY = "calcium_frequency"  # maps to calcium_level
+
+# Survey questions mapping for the guided form
+SURVEY_QUESTIONS = [
+    # Demographics
+    {
+        "id": 1,
+        "field_name": "age",
+        "question": "What is your age?",
+        "type": "number_input",
+        "options": [],
+        "help_text": "Enter your age in years (must be 18 or older)",
+        "required": True,
+    },
+    {
+        "id": 2,
+        "field_name": "gender",
+        "question": "What is your gender?",
+        "type": "select",
+        "options": [
+            {"value": "Male", "label": "Male"},
+            {"value": "Female", "label": "Female"},
+        ],
+        "help_text": "Select your gender",
+        "required": True,
+    },
+    {
+        "id": 3,
+        "field_name": "height_weight",
+        "question": "What is your height and weight?",
+        "type": "height_weight",
+        "options": [],
+        "help_text": "Enter your height (cm) and weight (kg) to calculate BMI",
+        "sub_fields": [
+            {"field_name": "height_cm", "label": "Height (cm)", "type": "number_input", "required": True},
+            {"field_name": "weight_kg", "label": "Weight (kg)", "type": "number_input", "required": True},
+        ],
+        "required": True,
+    },
+    {
+        "id": 4,
+        "field_name": "calcium_frequency",
+        "question": "How often do you consume milk, curd, paneer, or calcium-rich foods?",
+        "type": "select",
+        "options": [
+            {"value": "Rarely", "label": "Rarely"},
+            {"value": "Sometimes", "label": "Sometimes"},
+            {"value": "Daily", "label": "Daily"},
+        ],
+        "help_text": "Calcium intake is crucial for bone health",
+        "required": False,
+    },
+    # Functional / Frailty Indicators
+    {
+        "id": 5,
+        "field_name": "memory_issue",
+        "question": "Do you have serious difficulty remembering or concentrating?",
+        "type": "yes_no",
+        "options": [
+            {"value": "Yes", "label": "Yes"},
+            {"value": "No", "label": "No"},
+        ],
+        "help_text": "Cognitive function is linked to overall health",
+        "required": False,
+    },
+    {
+        "id": 6,
+        "field_name": "mobility_climb",
+        "question": "Do you have difficulty walking or climbing stairs?",
+        "type": "yes_no",
+        "options": [
+            {"value": "Yes", "label": "Yes"},
+            {"value": "No", "label": "No"},
+        ],
+        "help_text": "Mobility issues may indicate muscle and bone weakness",
+        "required": False,
+    },
+    {
+        "id": 7,
+        "field_name": "stand_long",
+        "question": "Do you have difficulty standing for long periods?",
+        "type": "yes_no",
+        "options": [
+            {"value": "Yes", "label": "Yes"},
+            {"value": "No", "label": "No"},
+        ],
+        "help_text": "Standing endurance relates to bone and muscle strength",
+        "required": False,
+    },
+    {
+        "id": 8,
+        "field_name": "activity_limited",
+        "question": "Are you limited in daily physical activities due to health problems?",
+        "type": "yes_no",
+        "options": [
+            {"value": "Yes", "label": "Yes"},
+            {"value": "No", "label": "No"},
+        ],
+        "help_text": "Physical activity limitations can affect bone density",
+        "required": False,
+    },
+    # Medical Conditions
+    {
+        "id": 9,
+        "field_name": "arthritis",
+        "question": "Has a doctor diagnosed you with arthritis?",
+        "type": "yes_no",
+        "options": [
+            {"value": "Yes", "label": "Yes"},
+            {"value": "No", "label": "No"},
+        ],
+        "help_text": "Arthritis can impact bone health and mobility",
+        "required": False,
+    },
+    {
+        "id": 10,
+        "field_name": "thyroid",
+        "question": "Have you been diagnosed with thyroid disease?",
+        "type": "yes_no",
+        "options": [
+            {"value": "Yes", "label": "Yes"},
+            {"value": "No", "label": "No"},
+        ],
+        "help_text": "Thyroid function affects bone metabolism",
+        "required": False,
+    },
+    {
+        "id": 11,
+        "field_name": "lung_disease",
+        "question": "Have you been diagnosed with chronic lung disease?",
+        "type": "yes_no",
+        "options": [
+            {"value": "Yes", "label": "Yes"},
+            {"value": "No", "label": "No"},
+        ],
+        "help_text": "Lung disease can be associated with bone health issues",
+        "required": False,
+    },
+    {
+        "id": 12,
+        "field_name": "heart_failure",
+        "question": "Have you been diagnosed with congestive heart failure?",
+        "type": "yes_no",
+        "options": [
+            {"value": "Yes", "label": "Yes"},
+            {"value": "No", "label": "No"},
+        ],
+        "help_text": "Heart conditions may affect overall bone health",
+        "required": False,
+    },
+    # Lifestyle Factors
+    {
+        "id": 13,
+        "field_name": "smoking",
+        "question": "Have you smoked regularly?",
+        "type": "yes_no",
+        "options": [
+            {"value": "Yes", "label": "Yes"},
+            {"value": "No", "label": "No"},
+        ],
+        "help_text": "Smoking accelerates bone loss",
+        "required": False,
+    },
+    {
+        "id": 14,
+        "field_name": "alcohol",
+        "question": "How often do you drink alcohol?",
+        "type": "select",
+        "options": [
+            {"value": "None", "label": "None"},
+            {"value": "Occasionally", "label": "Occasionally"},
+            {"value": "Frequently", "label": "Frequently"},
+        ],
+        "help_text": "Excess alcohol consumption affects bone strength",
+        "required": False,
+    },
+    {
+        "id": 15,
+        "field_name": "general_health",
+        "question": "How would you rate your overall health?",
+        "type": "select",
+        "options": [
+            {"value": "Excellent", "label": "Excellent"},
+            {"value": "Good", "label": "Good"},
+            {"value": "Fair", "label": "Fair"},
+            {"value": "Poor", "label": "Poor"},
+        ],
+        "help_text": "Your overall health status influences bone health",
+        "required": False,
+    },
+]
+
+
+def _encode_yes_no(value):
+    if isinstance(value, (bool, int)):
+        return int(bool(value))
+    if value is None:
+        return 0
+    text = str(value).strip().lower()
+    if text in {"yes", "y", "true", "1"}:
+        return 1
+    if text in {"no", "n", "false", "0"}:
+        return 0
+    return 0
+
+
+def _encode_gender(value):
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip().lower()
+    if text in {"male", "m"}:
+        return 1
+    if text in {"female", "f"}:
+        return 2
+    return 0
+
+
+def _encode_alcohol(value):
+    if value is None:
+        return 0
+    text = str(value).strip().lower()
+    if text in {"none", "no", "never"}:
+        return 0
+    return 1  # occasionally / frequently
+
+
+def _encode_health(value):
+    if value is None:
+        return 0
+    text = str(value).strip().lower()
+    if text in {"excellent", "good"}:
+        return 0
+    if text in {"fair", "poor"}:
+        return 1
+    return 0
+
+
+def _encode_calcium_frequency(value):
+    if value is None:
+        return 1  # default mid bucket
+    text = str(value).strip().lower()
+    if text in {"rarely", "low", "0"}:
+        return 0
+    if text in {"daily", "high", "2"}:
+        return 2
+    return 1  # sometimes / default
+
+
+def _compute_bmi(form_entry: dict) -> float | None:
+    h = form_entry.get("height_cm")
+    w = form_entry.get("weight_kg")
+    try:
+        if h is None or w is None:
+            return None
+        h_m = float(h) / 100.0
+        w_kg = float(w)
+        if h_m <= 0:
+            return None
+        return w_kg / (h_m * h_m)
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _risk_level(prob: float) -> str:
+    """
+    Risk categories MUST match training pipeline.
+    Training thresholds:
+        <0.10  -> Low
+        <0.20  -> Moderate
+        >=0.20 -> High
+    """
+    if prob < 0.10:
+        return "Low"
+    elif prob < 0.20:
+        return "Moderate"
+    else:
+        return "High"
+
+
+def _risk_message(level: str) -> str:
+    if level == "Low":
+        return "Your bone health appears stable. Maintain healthy habits and reassess periodically."
+    if level == "Moderate":
+        return "Early risk indicators detected. Lifestyle improvements are recommended."
+    return "Strong osteoporosis risk patterns observed. Preventive action and clinical screening advised."
+
+
+def _generate_tasks(form_entry: dict) -> list[str]:
+    tasks: list[str] = []
+    bmi = _compute_bmi(form_entry)
+    if bmi is not None and bmi < 18.5:
+        tasks.append("Increase protein and calorie intake daily")
+
+    alcohol = str(form_entry.get("alcohol", "")).lower()
+    if alcohol in {"occasionally", "frequently"}:
+        tasks.append("Limit alcohol intake to protect bone strength")
+
+    smoking = str(form_entry.get("smoking", "")).lower()
+    if smoking == "yes":
+        tasks.append("Stop smoking to prevent further bone loss")
+
+    if str(form_entry.get("activity_limited", "")).lower() == "yes" or str(form_entry.get("mobility_climb", "")).lower() == "yes":
+        tasks.append("Perform 20–30 min weight-bearing exercise daily")
+
+    return tasks
+
+
+def _medical_alerts(form_entry: dict) -> list[str]:
+    alerts: list[str] = []
+    conditions = [
+        form_entry.get("arthritis"),
+        form_entry.get("thyroid"),
+        form_entry.get("lung_disease"),
+        form_entry.get("heart_failure"),
+    ]
+    if any(str(c).lower() == "yes" for c in conditions):
+        alerts.append("Existing medical condition may increase bone risk. Clinical screening recommended.")
+
+    # General health signal
+    if str(form_entry.get("general_health", "")).lower() in {"fair", "poor"}:
+        alerts.append("Overall health concerns noted. Consider discussing bone health with your clinician.")
+
+    return alerts
+
+
+def _map_form_entry(form_entry: dict, feature_order: list[str]) -> dict:
+    """Map a guided-form entry into the exact model feature vector."""
+    row = {feat: 0 for feat in feature_order}
+
+    # Age and age^2
+    age = form_entry.get("age")
+    if age is None:
+        raise ValueError("'age' is required")
+    age_val = float(age)
+    if "RIDAGEYR" in row:
+        row["RIDAGEYR"] = age_val
+    if "AGE_SQUARED" in row:
+        row["AGE_SQUARED"] = age_val * age_val
+
+    # Gender
+    if "RIAGENDR" in row:
+        row["RIAGENDR"] = _encode_gender(form_entry.get("gender"))
+
+    # BMI from height/weight if present
+    if "BMXBMI" in row:
+        h = form_entry.get("height_cm")
+        w = form_entry.get("weight_kg")
+        if h is None or w is None:
+            raise ValueError("'height_cm' and 'weight_kg' are required to compute BMI")
+        try:
+            h_m = float(h) / 100.0
+            w_kg = float(w)
+            bmi = w_kg / (h_m * h_m) if h_m > 0 else 0
+        except Exception as exc:  # pragma: no cover - bad numeric input
+            raise ValueError(f"Invalid height/weight: {exc}")
+        row["BMXBMI"] = bmi
+
+    # Binary MCQ signals
+    for col, friendly_key in FRIENDLY_BOOL_MAP.items():
+        if col in row:
+            row[col] = _encode_yes_no(form_entry.get(friendly_key))
+
+    # Alcohol (MCQ550)
+    if "MCQ550" in row:
+        row["MCQ550"] = _encode_alcohol(form_entry.get(FRIENDLY_ALCOHOL_KEY))
+
+    # General health (MCQ025)
+    if "MCQ025" in row:
+        row["MCQ025"] = _encode_health(form_entry.get(FRIENDLY_HEALTH_KEY))
+
+    # Calcium intake proxy (mapped to model's binned calcium_level)
+    if "calcium_level" in row:
+        row["calcium_level"] = _encode_calcium_frequency(form_entry.get(FRIENDLY_CALCIUM_KEY))
+
+    return row
+
+
+@app.route("/survey/questions", methods=["GET"])
+def get_survey_questions():
+    """
+    Returns all survey questions for the guided form.
+    Frontend can use this to build multi-slide survey UI.
+    
+    Response format:
+    {
+        "total_questions": 15,
+        "questions": [
+            {
+                "id": 1,
+                "field_name": "age",
+                "question": "What is your age?",
+                "type": "number_input",
+                "options": [],
+                "help_text": "...",
+                "required": true
+            },
+            ...
+        ]
+    }
+    """
+    return jsonify({
+        "total_questions": len(SURVEY_QUESTIONS),
+        "questions": SURVEY_QUESTIONS,
+    })
+
+
+@app.route("/survey/submit", methods=["POST"])
+@limiter.limit("5 per minute", key_func=_rate_limit_key)
+def submit_survey():
+    """
+    Accepts completed survey form and returns risk assessment.
+    Expects a JSON body with the survey answers.
+    
+    Example request:
+    {
+        "survey_data": {
+            "age": 60,
+            "gender": "Female",
+            "height_cm": 160,
+            "weight_kg": 70,
+            "calcium_frequency": "Daily",
+            "memory_issue": "No",
+            ...
+        }
+    }
+    """
+    key_err = _require_api_key()
+    if key_err:
+        return key_err
+    user_id, user_err = _require_user_id()
+    if user_err:
+        return user_err
+    
+    try:
+        model, feature_order = _load_artifacts()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 503
+    
+    data = request.get_json(silent=True)
+    if not data or "survey_data" not in data:
+        return jsonify({"error": "Request must include 'survey_data' field"}), 400
+    
+    survey_data = data["survey_data"]
+    
+    # Validate required fields
+    ok, msg = _validate_form_input(survey_data)
+    if not ok:
+        return jsonify({"error": f"Invalid input: {msg}"}), 400
+    
+    try:
+        # Prepare feature vector from survey data
+        X = _prepare_frame_from_forms([survey_data], feature_order)
+        
+        # Make prediction
+        threshold_val = float(data.get("threshold", 0.1))
+        prob = model.predict_proba(X)[:, 1]
+        pred = (prob >= threshold_val).astype(int)
+        risk_level = _risk_level(prob[0])
+        message = _risk_message(risk_level)
+        tasks = _generate_tasks(survey_data)
+        alerts = _medical_alerts(survey_data)
+        
+    except Exception as exc:
+        return jsonify({"error": f"Inference failed: {exc}"}), 400
+    
+    response_body = {
+        "prediction": int(pred[0]),
+        "probability": float(prob[0]),
+        "risk_level": risk_level,
+        "message": message,
+        "recommended_tasks": tasks,
+        "medical_alerts": alerts,
+    }
+    
+    # Save to history
+    _save_prediction(user_id, "survey_submit", {
+        "prediction": int(pred[0]),
+        "probability": float(prob[0]),
+        "inputs": survey_data,
+    })
+    
+    return jsonify(response_body)
+
+
+@app.route("/history", methods=["GET"])
+@limiter.limit("5 per minute", key_func=_rate_limit_key)
+def history():
+    key_err = _require_api_key()
+    if key_err:
+        return key_err
+    user_id, user_err = _require_user_id()
+    if user_err:
+        return user_err
+    try:
+        limit = int(request.args.get("limit", 50))
+    except Exception:
+        limit = 50
+    limit = max(1, min(limit, 200))
+    history_rows = _get_history(user_id, limit)
+    return jsonify({"history": history_rows, "count": len(history_rows)})
+
+
+def _load_artifacts():
+    global _model, _feature_order
+    if _model is None:
+        if not os.path.exists(MODEL_PATH):
+            raise FileNotFoundError(
+                f"Model file not found at {MODEL_PATH}. Export it from the notebook or copy it to backend/artifacts/."
+            )
+        app.logger.info("Loading model from %s", MODEL_PATH)
+        _model = joblib.load(MODEL_PATH)
+    if _feature_order is None:
+        if not os.path.exists(FEATURES_PATH):
+            raise FileNotFoundError(
+                f"Feature list not found at {FEATURES_PATH}. Save the ordered feature names alongside the model."
+            )
+        app.logger.info("Loading feature order from %s", FEATURES_PATH)
+        with open(FEATURES_PATH, "r", encoding="utf-8") as f:
+            _feature_order = json.load(f)
+    return _model, _feature_order
+
+
+@app.route("/user_data", methods=["DELETE"])
+@limiter.limit("5 per minute")
+def delete_user_data():
+    key_err = _require_api_key()
+    if key_err:
+        return key_err
+    user_id, user_err = _require_user_id()
+    if user_err:
+        return user_err
+    _ensure_predictions_table()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("DELETE FROM predictions WHERE user_id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"status": "user data deleted"})
+
+
+@app.route("/artifacts_check", methods=["GET"])
+def artifacts_check():
+    return jsonify({
+        "model_path": MODEL_PATH,
+        "model_exists": os.path.exists(MODEL_PATH),
+        "features_path": FEATURES_PATH,
+        "features_exists": os.path.exists(FEATURES_PATH)
+    })
+
+
+@app.route("/routes", methods=["GET"])
+def routes():
+    return jsonify(sorted([str(r) for r in app.url_map.iter_rules()]))
+
+
+def _prepare_frame(records: list[dict], feature_order: list[str]) -> pd.DataFrame:
+    df = pd.DataFrame(records)
+    missing = [f for f in feature_order if f not in df.columns]
+    if missing:
+        raise ValueError(f"Missing features: {missing}")
+    # Keep only expected columns and fill the rest
+    df = df[feature_order].copy()
+    return df.fillna(0)
+
+
+def _prepare_frame_from_forms(forms: list[dict], feature_order: list[str]) -> pd.DataFrame:
+    mapped = [_map_form_entry(entry, feature_order) for entry in forms]
+    return pd.DataFrame(mapped)[feature_order].fillna(0)
+
+
+def _require_api_key():
+    if not API_KEY:
+        return jsonify({"error": "Server API key not configured. Set API_KEY env var."}), 503
+
+    # Support either Authorization: Bearer <key> or x-api-key: <key>
+    auth_header = request.headers.get("Authorization", "")
+    token = None
+    prefix = "Bearer "
+    if auth_header.startswith(prefix):
+        token = auth_header[len(prefix):].strip()
+    else:
+        token = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
+
+    if token != API_KEY:
+        return jsonify({"error": "Invalid or missing API key"}), 401
+    return None
+
+
+def _require_user_id() -> tuple[str | None, tuple | None]:
+    user_id = request.headers.get("X-User-Id", "").strip()
+    if not user_id:
+        return None, (jsonify({"error": "Missing user id header 'X-User-Id'"}), 401)
+    return user_id, None
+
+
+def _ensure_predictions_table():
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                predictions_json TEXT NOT NULL,
+                probabilities_json TEXT,
+                inputs_json TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_predictions_user_created ON predictions(user_id, created_at DESC)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _save_prediction(user_id: str, endpoint: str, payload: dict):
+    _ensure_predictions_table()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO predictions (user_id, endpoint, predictions_json, probabilities_json, inputs_json) VALUES (?, ?, ?, ?, ?)",
+            (
+                user_id,
+                endpoint,
+                json.dumps(payload.get("predictions", [])),
+                json.dumps(payload.get("probabilities")),
+                json.dumps(payload.get("inputs", {})),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _get_history(user_id: str, limit: int = 50) -> list[dict]:
+    _ensure_predictions_table()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT id, endpoint, predictions_json, probabilities_json, inputs_json, created_at FROM predictions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        history: list[dict] = []
+        for row in rows:
+            history.append({
+                "id": row["id"],
+                "endpoint": row["endpoint"],
+                "created_at": row["created_at"],
+                "predictions": json.loads(row["predictions_json"] or "[]"),
+                "probabilities": json.loads(row["probabilities_json"] or "null"),
+                "inputs": json.loads(row["inputs_json"] or "{}"),
+            })
+        return history
+    finally:
+        conn.close()
+
+
+def _validate_record(record: dict) -> tuple[bool, str]:
+    try:
+        if "RIDAGEYR" in record:
+            age = float(record["RIDAGEYR"])
+            if age < 18 or age > 100:
+                return False, "age must be between 18 and 100"
+        if "BMXBMI" in record:
+            bmi = float(record["BMXBMI"])
+            if bmi < 10 or bmi > 60:
+                return False, "BMI must be between 10 and 60"
+        bool_like_cols = list(FRIENDLY_BOOL_MAP.keys()) + ["MCQ550", "MCQ025"]
+        for col in bool_like_cols:
+            if col in record:
+                val = record[col]
+                if val not in {0, 1, "0", "1"}:
+                    return False, f"{col} must be 0 or 1"
+        if "RIAGENDR" in record:
+            gender_val = int(record["RIAGENDR"])
+            if gender_val not in {1, 2}:
+                return False, "RIAGENDR must be 1 (male) or 2 (female)"
+    except Exception:
+        return False, "numeric fields invalid"
+    return True, ""
+
+
+def _validate_form_input(form: dict) -> tuple[bool, str]:
+    try:
+        age = float(form.get("age", 0))
+        if age < 18 or age > 100:
+            return False, "age must be between 18 and 100"
+        h = float(form.get("height_cm", 0))
+        w = float(form.get("weight_kg", 0))
+        bmi = w / ((h / 100) ** 2) if h > 0 else 0
+        if bmi < 10 or bmi > 60:
+            return False, "BMI must be between 10 and 60"
+    except Exception:
+        return False, "numeric fields invalid"
+
+    yes_no_fields = [
+        "memory_issue",
+        "mobility_climb",
+        "stand_long",
+        "activity_limited",
+        "arthritis",
+        "thyroid",
+        "lung_disease",
+        "heart_failure",
+        "smoking",
+    ]
+    for key in yes_no_fields:
+        val = str(form.get(key, "")).strip().lower()
+        if val not in {"", "yes", "no"}:
+            return False, f"{key} must be Yes or No"
+
+    alcohol = str(form.get("alcohol", "")).strip().lower()
+    if alcohol and alcohol not in {"none", "occasionally", "frequently"}:
+        return False, "alcohol must be None, Occasionally, or Frequently"
+
+    gender = str(form.get("gender", "")).strip().lower()
+    if gender and gender not in {"male", "female", "m", "f", "1", "2"}:
+        return False, "gender must be Male or Female"
+
+    return True, ""
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
+
+
+@app.route("/", methods=["GET"])
+def index():
+    """Lightweight landing endpoint so hitting '/' doesn't 404."""
+    return jsonify({
+        "status": "ok",
+        "routes": [
+            "/health",
+            "/predict",
+            "/predict_form",
+            "/survey/questions",
+            "/survey/submit",
+            "/history",
+            "/artifacts_check",
+        ],
+        "message": "Backend is running. Use POST /predict or /predict_form for inference, or GET /survey/questions to start a survey."
+    })
+
+
+@app.route("/predict", methods=["POST"])
+@limiter.limit("5 per minute", key_func=_rate_limit_key)
+def predict():
+    key_err = _require_api_key()
+    if key_err:
+        return key_err
+    user_id, user_err = _require_user_id()
+    if user_err:
+        return user_err
+    try:
+        model, feature_order = _load_artifacts()
+    except Exception as exc:  # pragma: no cover - startup guard
+        return jsonify({"error": str(exc)}), 503
+
+    data = request.get_json(silent=True)
+    if not data or "records" not in data:
+        return jsonify({"error": "Request must be JSON with a 'records' list."}), 400
+
+    records = data["records"]
+    if not isinstance(records, list) or len(records) == 0:
+        return jsonify({"error": "'records' must be a non-empty list."}), 400
+
+    for rec in records:
+        ok, msg = _validate_record(rec)
+        if not ok:
+            return jsonify({"error": f"Invalid input: {msg}"}), 400
+
+    try:
+        X = _prepare_frame(records, feature_order)
+        input_dict = records
+        input_vector = X.to_dict(orient="records")
+        print("input_dict:", input_dict)
+        print("input_vector:", input_vector)
+        prob = model.predict_proba(X)[:, 1]
+        pred = (prob >= data.get("threshold", 0.1)).astype(int)
+    except Exception as exc:  # pragma: no cover - inference guard
+        return jsonify({"error": f"Inference failed: {exc}"}), 400
+
+    response_body = {
+        "predictions": pred.tolist(),
+        "probabilities": prob.tolist()
+    }
+    _save_prediction(user_id, "predict", {
+        "predictions": response_body["predictions"],
+        "probabilities": response_body["probabilities"],
+        "inputs": records,
+    })
+
+    return jsonify(response_body)
+
+
+@app.route("/predict_form", methods=["POST"])
+@limiter.limit("5 per minute", key_func=_rate_limit_key)
+def predict_form():
+    key_err = _require_api_key()
+    if key_err:
+        return key_err
+    user_id, user_err = _require_user_id()
+    if user_err:
+        return user_err
+    try:
+        model, feature_order = _load_artifacts()
+    except Exception as exc:  # pragma: no cover - startup guard
+        return jsonify({"error": str(exc)}), 503
+
+    data = request.get_json(silent=True)
+    if not data or "forms" not in data:
+        return jsonify({"error": "Request must be JSON with a 'forms' list."}), 400
+
+    forms = data["forms"]
+    if not isinstance(forms, list) or len(forms) == 0:
+        return jsonify({"error": "'forms' must be a non-empty list."}), 400
+
+    for form in forms:
+        ok, msg = _validate_form_input(form)
+        if not ok:
+            return jsonify({"error": f"Invalid input: {msg}"}), 400
+
+    try:
+        X = _prepare_frame_from_forms(forms, feature_order)
+        input_dict = forms
+        input_vector = X.to_dict(orient="records")
+        print("input_dict:", input_dict)
+        print("input_vector:", input_vector)
+        threshold_val = float(data.get("threshold", 0.1))
+        prob = model.predict_proba(X)[:, 1]
+        pred = (prob >= threshold_val).astype(int)
+        risk_levels = [_risk_level(p) for p in prob]
+        messages = [_risk_message(level) for level in risk_levels]
+        tasks = [_generate_tasks(f) for f in forms]
+        alerts = [_medical_alerts(f) for f in forms]
+    except Exception as exc:  # pragma: no cover - inference guard
+        return jsonify({"error": f"Inference failed: {exc}"}), 400
+
+    response_body = {
+        "predictions": pred.tolist(),
+        "probabilities": prob.tolist(),
+        "risk_levels": risk_levels,
+        "messages": messages,
+        "tasks": tasks,
+        "alerts": alerts,
+    }
+
+    _save_prediction(user_id, "predict_form", {
+        "predictions": response_body["predictions"],
+        "probabilities": response_body["probabilities"],
+        "inputs": forms,
+    })
+
+    return jsonify(response_body)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
