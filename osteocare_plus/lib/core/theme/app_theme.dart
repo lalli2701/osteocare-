@@ -14,7 +14,7 @@ ThemeData buildLightTheme() {
       seedColor: primaryColor,
       primary: primaryColor,
       secondary: secondaryColor,
-      background: backgroundColor,
+      surface: backgroundColor,
     ),
   );
 
