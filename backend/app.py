@@ -10,6 +10,9 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
+# Import authentication module
+from auth import init_auth_db, signup_user, login_user, token_required, get_user_by_id
+
 # Load environment variables from backend/.env if present
 load_dotenv()
 
@@ -43,6 +46,9 @@ def _rate_limit_key():
 
 
 limiter = Limiter(_rate_limit_key, app=app, default_limits=["100 per hour"])  # basic abuse guard
+
+# Initialize authentication database
+init_auth_db(DB_PATH)
 
 _model = None
 _feature_order: list[str] | None = None
@@ -442,6 +448,110 @@ def _map_form_entry(form_entry: dict, feature_order: list[str]) -> dict:
     return row
 
 
+# ------------------------------------------
+# Authentication Routes
+# ------------------------------------------
+
+@app.route("/api/auth/signup", methods=["POST"])
+@limiter.limit("5 per minute")  # Limit signup attempts
+def api_signup():
+    """
+    Register a new user.
+    
+    Request JSON:
+    {
+        "full_name": "John Doe",
+        "phone_number": "9876543210",
+        "password": "SecurePass123"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
+        
+        full_name = data.get("full_name", "").strip()
+        phone_number = data.get("phone_number", "").strip()
+        password = data.get("password", "")
+        
+        result = signup_user(DB_PATH, full_name, phone_number, password)
+        status = result.pop("status", 200)
+        
+        return jsonify(result), status
+        
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+@app.route("/api/auth/login", methods=["POST"])
+@limiter.limit("10 per minute")  # Limit login attempts
+def api_login():
+    """
+    Authenticate a user and return JWT token.
+    
+    Request JSON:
+    {
+        "phone_number": "9876543210",
+        "password": "SecurePass123"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
+        
+        phone_number = data.get("phone_number", "").strip()
+        password = data.get("password", "")
+        
+        result = login_user(DB_PATH, phone_number, password)
+        status = result.pop("status", 200)
+        
+        return jsonify(result), status
+        
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+@app.route("/api/auth/verify", methods=["GET"])
+@token_required
+def api_verify_token():
+    """
+    Verify if the current token is valid.
+    Protected route that requires JWT token in Authorization header.
+    """
+    try:
+        user_data = get_user_by_id(DB_PATH, request.current_user['user_id'])
+        if user_data:
+            return jsonify({"valid": True, "user": user_data}), 200
+        else:
+            return jsonify({"error": "User not found"}), 404
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+@app.route("/api/user/profile", methods=["GET"])
+@token_required
+def api_get_profile():
+    """
+    Get current user profile.
+    Protected route - requires JWT token.
+    """
+    try:
+        user_data = get_user_by_id(DB_PATH, request.current_user['user_id'])
+        if user_data:
+            return jsonify(user_data), 200
+        else:
+            return jsonify({"error": "User not found"}), 404
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+# ------------------------------------------
+# Survey and Prediction Routes
+# ------------------------------------------
+
 @app.route("/survey/questions", methods=["GET"])
 def get_survey_questions():
     """
@@ -796,6 +906,45 @@ def _validate_form_input(form: dict) -> tuple[bool, str]:
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/public/app-info", methods=["GET"])
+def app_info():
+    """Public endpoint providing application metadata (no authentication required)."""
+    return jsonify({
+        "app_name": "OsteoCare+",
+        "version": "1.0.0",
+        "description": "AI-based osteoporosis risk screening tool",
+        "disclaimer": "This app does not provide medical diagnosis. Results are educational risk estimates only.",
+        "contact": "support@osteocare.app",
+        "privacy_url": "/privacy",
+        "terms_url": "/terms"
+    })
+
+
+@app.route("/api/public/voice-script", methods=["GET"])
+def voice_script():
+    """Public endpoint providing approved landing narration text for TTS."""
+    script = (
+        "Hello and welcome to OsteoCare Plus.\n\n"
+        "This application helps you understand your osteoporosis risk level in a simple and clear manner.\n\n"
+        "Please note carefully, this app does not diagnose osteoporosis and it does not replace consultation with a qualified medical professional. "
+        "It only provides an AI-based risk assessment for awareness purposes.\n\n"
+        "We collect basic information such as your age, gender, lifestyle habits, and certain medical history details. "
+        "These inputs are used only to calculate your personalized risk score.\n\n"
+        "Your data is kept secure and is not sold to any third party.\n\n"
+        "Let me briefly explain how the app works.\n\n"
+        "Step one: Create your account using your phone number.\n\n"
+        "Step two: Enter your health and lifestyle details.\n\n"
+        "Step three: Our machine learning model analyses your information.\n\n"
+        "Step four: You receive your risk category — Low, Moderate, or High.\n\n"
+        "Step five: You get personalized recommendations and reminder notifications to support your bone health.\n\n"
+        "Osteoporosis affects over 200 million people worldwide. One in three women and one in five men above the age of fifty are at risk.\n\n"
+        "It is always better to be aware early and take preventive steps.\n\n"
+        "To continue, please select Sign Up if you are new, or Login if you already have an account.\n\n"
+        "Thank you for choosing OsteoCare Plus."
+    )
+    return jsonify({"script": script})
 
 
 @app.route("/", methods=["GET"])
