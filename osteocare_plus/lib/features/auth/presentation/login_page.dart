@@ -111,7 +111,7 @@ class _LoginPageState extends State<LoginPage> {
                 // Logo
                 Center(
                   child: Image.asset(
-                    'assets/osteocare_logo.jpeg',
+                    'assets/ossopulse_logo.jpeg',
                     height: 120,
                     width: 120,
                     errorBuilder: (context, error, stackTrace) {
@@ -128,7 +128,7 @@ class _LoginPageState extends State<LoginPage> {
                 
                 // App Name
                 Text(
-                  'OsteoCare+',
+                  'OssoPulse',
                   style: theme.textTheme.headlineLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: theme.colorScheme.primary,

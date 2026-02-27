@@ -21,7 +21,7 @@ class TermsPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'OsteoCare+ Terms & Conditions',
+              'OssoPulse Terms & Conditions',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: theme.colorScheme.primary,
@@ -32,13 +32,13 @@ class TermsPage extends StatelessWidget {
             _buildSection(
               theme,
               '1. Acceptance of Terms',
-              'By accessing and using OsteoCare+, you agree to be bound by these Terms & Conditions. If you do not agree to these terms, please do not use this application.',
+              'By accessing and using OssoPulse, you agree to be bound by these Terms & Conditions. If you do not agree to these terms, please do not use this application.',
             ),
             
             _buildSection(
               theme,
               '2. User Consent and Acknowledgment',
-              'By using OsteoCare+, you confirm and agree to the following:\n\n'
+              'By using OssoPulse, you confirm and agree to the following:\n\n'
               '• I confirm that the information I provide is true and accurate to the best of my knowledge.\n\n'
               '• I understand that this application provides an AI-based osteoporosis risk assessment for informational and educational purposes only.\n\n'
               '• I understand that this application does not replace consultation, diagnosis, or treatment by a licensed medical professional.\n\n'
@@ -51,7 +51,7 @@ class TermsPage extends StatelessWidget {
             _buildSection(
               theme,
               '3. Medical Disclaimer',
-              'OsteoCare+ is designed to provide general health information and risk assessment only. It is NOT intended to:\n\n'
+              'OssoPulse is designed to provide general health information and risk assessment only. It is NOT intended to:\n\n'
               '• Diagnose any medical condition\n'
               '• Provide medical advice or treatment\n'
               '• Replace professional medical consultation\n\n'
@@ -82,13 +82,13 @@ class TermsPage extends StatelessWidget {
             _buildSection(
               theme,
               '6. Age Restrictions',
-              'OsteoCare+ is intended for users aged 18 years and older. Users under 18 must have parental or guardian consent and supervision when using this application.',
+              'OssoPulse is intended for users aged 18 years and older. Users under 18 must have parental or guardian consent and supervision when using this application.',
             ),
             
             _buildSection(
               theme,
               '7. Data Usage and Privacy',
-              'Your privacy is important to us. By using OsteoCare+, you consent to:\n\n'
+              'Your privacy is important to us. By using OssoPulse, you consent to:\n\n'
               '• Collection and storage of your health information\n'
               '• Processing of your data for risk assessment purposes\n'
               '• Receiving notifications and health alerts\n\n'
@@ -98,7 +98,7 @@ class TermsPage extends StatelessWidget {
             _buildSection(
               theme,
               '8. Notifications and Alerts',
-              'By using OsteoCare+, you agree to receive:\n\n'
+              'By using OssoPulse, you agree to receive:\n\n'
               '• Health-related reminders and tips\n'
               '• Reassessment notifications\n'
               '• Educational content about bone health\n'
@@ -109,7 +109,7 @@ class TermsPage extends StatelessWidget {
             _buildSection(
               theme,
               '9. Limitation of Liability',
-              'OsteoCare+ and its developers shall not be liable for:\n\n'
+              'OssoPulse and its developers shall not be liable for:\n\n'
               '• Any direct, indirect, or consequential damages arising from use of the application\n'
               '• Health decisions made based on risk assessments provided\n'
               '• Technical failures, data loss, or service interruptions\n'
@@ -135,7 +135,7 @@ class TermsPage extends StatelessWidget {
             _buildSection(
               theme,
               '12. Intellectual Property',
-              'All content, features, and functionality of OsteoCare+ are owned by the developers and are protected by copyright, trademark, and other intellectual property laws.',
+              'All content, features, and functionality of OssoPulse are owned by the developers and are protected by copyright, trademark, and other intellectual property laws.',
             ),
             
             _buildSection(
