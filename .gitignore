@@ -1,0 +1,21 @@
+# Python
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+
+# Build
+dist/
+build/
+
+# Databases
+*.db
+
+# Editor
+.vscode/
