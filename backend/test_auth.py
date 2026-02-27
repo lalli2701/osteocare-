@@ -1,5 +1,5 @@
 """
-Test script for OsteoCare+ Authentication System
+Test script for OssoPulse Authentication System
 This script tests the signup, login, and token verification endpoints.
 """
 import requests
@@ -191,7 +191,7 @@ def test_validation():
 def main():
     """Run all tests"""
     print("\n" + "="*60)
-    print("🚀 OsteoCare+ Authentication System Test Suite")
+    print("🚀 OssoPulse Authentication System Test Suite")
     print("="*60)
     
     try:
