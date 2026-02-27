@@ -1,4 +1,4 @@
-# osteocare_plus
+# OssoPulse
 
 A new Flutter project.
 

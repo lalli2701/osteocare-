@@ -16,8 +16,9 @@ class _LandingPageState extends State<LandingPage> {
   bool _ttsReady = false;
   bool _isSpeaking = false;
   bool _isPaused = false;
+  bool _hasAutoPlayed = false;
 
-  static const String _voiceScript = '''Hello and welcome to OsteoCare Plus.
+  static const String _voiceScript = '''Hello and welcome to OssoPulse.
 
 This application helps you understand your osteoporosis risk level in a simple and clear manner.
 
@@ -45,7 +46,7 @@ It is always better to be aware early and take preventive steps.
 
 To continue, please select Sign Up if you are new, or Login if you already have an account.
 
-Thank you for choosing OsteoCare Plus.''';
+Thank you for choosing OssoPulse.''';
 
   Future<void> _initTts() async {
     if (_ttsReady) return;
@@ -91,6 +92,18 @@ Thank you for choosing OsteoCare Plus.''';
     _ttsReady = true;
   }
 
+  @override
+  void initState() {
+    super.initState();
+    // Auto-play voice overview once
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!_hasAutoPlayed && mounted) {
+        _hasAutoPlayed = true;
+        _playOverview();
+      }
+    });
+  }
+
   Future<void> _playOverview() async {
     await _initTts();
     final tts = _flutterTts;
@@ -132,22 +145,24 @@ Thank you for choosing OsteoCare Plus.''';
     final theme = Theme.of(context);
 
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFF0A1929),
-              const Color(0xFF132F4C),
-              const Color(0xFF1A3A52),
-              const Color(0xFF0D2438),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      body: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFF0A1929),
+                  const Color(0xFF132F4C),
+                  const Color(0xFF1A3A52),
+                  const Color(0xFF0D2438),
+                ],
+              ),
+            ),
+            child: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1120),
@@ -156,7 +171,7 @@ Thank you for choosing OsteoCare Plus.''';
                   children: [
                     const SizedBox(height: 18),
                     Text(
-                      'OsteoCare+',
+                      'OssoPulse',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.displayMedium?.copyWith(
                         color: const Color(0xFF00D9A3),
@@ -285,33 +300,7 @@ Thank you for choosing OsteoCare Plus.''';
                             ),
                           ),
                           const SizedBox(height: 16),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              _controlButton(
-                                label: 'Play',
-                                icon: Icons.play_arrow_rounded,
-                                enabled: true,
-                                filled: true,
-                                onTap: _playOverview,
-                              ),
-                              _controlButton(
-                                label: 'Pause',
-                                icon: Icons.pause,
-                                enabled: _isSpeaking,
-                                filled: false,
-                                onTap: _pauseOverview,
-                              ),
-                              _controlButton(
-                                label: 'Stop',
-                                icon: Icons.stop,
-                                enabled: _isSpeaking || _isPaused,
-                                filled: false,
-                                onTap: _stopOverview,
-                              ),
-                            ],
-                          ),
+                          // Voice controls are now floating at bottom-right
                         ],
                       ),
                     ),
@@ -416,7 +405,7 @@ Thank you for choosing OsteoCare Plus.''';
                           Text('•', style: TextStyle(color: Colors.white.withValues(alpha: 0.35))),
                           _footerLink('Contact', () {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Contact: support@osteocare.app')),
+                              const SnackBar(content: Text('Contact: support@ossopulse.app')),
                             );
                           }),
                         ],
@@ -425,7 +414,7 @@ Thank you for choosing OsteoCare Plus.''';
                     const SizedBox(height: 10),
                     Center(
                       child: Text(
-                        'OsteoCare+ v1.0.0',
+                        'OssoPulse v1.0.0',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: Colors.white.withValues(alpha: 0.4),
                           fontWeight: FontWeight.w600,
@@ -437,6 +426,95 @@ Thank you for choosing OsteoCare Plus.''';
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+          // Floating Voice Controller
+          Positioned(
+            bottom: 80,
+            right: 20,
+            child: _buildFloatingVoiceController(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingVoiceController() {
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(16),
+      color: Colors.black87,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: const Color(0xFF00D9A3).withValues(alpha: 0.3),
+            width: 1.5,
+          ),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.black.withValues(alpha: 0.9),
+              const Color(0xFF132F4C).withValues(alpha: 0.9),
+            ],
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _floatingIconButton(
+              icon: _isPaused || !_isSpeaking ? Icons.play_arrow_rounded : Icons.pause,
+              onTap: () {
+                if (_isPaused) {
+                  _playOverview();
+                } else if (_isSpeaking) {
+                  _pauseOverview();
+                } else {
+                  _playOverview();
+                }
+              },
+              tooltip: _isPaused || !_isSpeaking ? 'Play/Resume' : 'Pause',
+            ),
+            const SizedBox(width: 8),
+            _floatingIconButton(
+              icon: Icons.stop,
+              onTap: _stopOverview,
+              tooltip: 'Stop',
+              enabled: _isSpeaking || _isPaused,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _floatingIconButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    required String tooltip,
+    bool enabled = true,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF00D9A3).withValues(alpha: enabled ? 0.2 : 0.05),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: const Color(0xFF00D9A3).withValues(alpha: enabled ? 0.4 : 0.1),
+            ),
+          ),
+          child: Icon(
+            icon,
+            size: 24,
+            color: const Color(0xFF00D9A3).withValues(alpha: enabled ? 1.0 : 0.3),
           ),
         ),
       ),
@@ -578,63 +656,6 @@ Thank you for choosing OsteoCare Plus.''';
             fontSize: 16,
             fontWeight: FontWeight.w700,
             color: Colors.white,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _controlButton({
-    required String label,
-    required IconData icon,
-    required bool enabled,
-    required bool filled,
-    required Future<void> Function() onTap,
-  }) {
-    final background = filled ? const Color(0xFF00D9A3) : Colors.transparent;
-    final borderColor = filled
-        ? const Color(0xFF00D9A3)
-        : const Color(0xFF00D9A3).withValues(alpha: 0.28);
-    final foreground = filled
-        ? Colors.white
-        : Colors.white.withValues(alpha: enabled ? 0.7 : 0.35);
-
-    return InkWell(
-      onTap: enabled ? () => onTap() : null,
-      borderRadius: BorderRadius.circular(999),
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 180),
-        opacity: enabled ? 1 : 0.6,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 9),
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: borderColor, width: 1.4),
-            boxShadow: filled
-                ? [
-                    BoxShadow(
-                      color: const Color(0xFF00D9A3).withValues(alpha: 0.25),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ]
-                : [],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 19, color: foreground),
-              const SizedBox(width: 7),
-              Text(
-                label,
-                style: TextStyle(
-                  color: foreground,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
           ),
         ),
       ),

@@ -8,7 +8,7 @@ import '../../features/auth/presentation/terms_page.dart';
 import '../../features/auth/presentation/privacy_page.dart';
 import '../../features/onboarding/presentation/landing_page.dart';
 import '../../features/onboarding/presentation/about_page.dart';
-import '../../features/dashboard/presentation/dashboard_page.dart';
+import '../../features/dashboard/presentation/dashboard_wrapper.dart';
 import '../../features/survey/presentation/survey_page.dart';
 import '../../features/survey/presentation/result_page.dart';
 import '../../features/dashboard/presentation/tasks_page.dart';
@@ -48,8 +48,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const AboutPage(),
       ),
       GoRoute(
-        path: DashboardPage.routePath,
-        builder: (context, state) => const DashboardPage(),
+        path: DashboardWrapper.routePath,
+        builder: (context, state) => const DashboardWrapper(),
       ),
       GoRoute(
         path: SurveyPage.routePath,

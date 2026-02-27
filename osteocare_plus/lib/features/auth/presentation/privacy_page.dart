@@ -21,7 +21,7 @@ class PrivacyPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'OsteoCare+ Privacy Policy',
+              'OssoPulse Privacy Policy',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: theme.colorScheme.primary,
@@ -32,7 +32,7 @@ class PrivacyPage extends StatelessWidget {
             _buildSection(
               theme,
               '1. Introduction',
-              'OsteoCare+ ("we", "our", or "us") is committed to protecting your privacy and handling your personal health information with care. This Privacy Policy explains how we collect, use, store, and protect your information when you use our application.',
+              'OssoPulse ("we", "our", or "us") is committed to protecting your privacy and handling your personal health information with care. This Privacy Policy explains how we collect, use, store, and protect your information when you use our application.',
             ),
             
             _buildSection(
@@ -118,14 +118,14 @@ class PrivacyPage extends StatelessWidget {
             _buildSection(
               theme,
               '8. Children\'s Privacy',
-              'OsteoCare+ is intended for users aged 18 and older. If you are under 18, you should use this application only under parental or guardian supervision.\n\n'
+              'OssoPulse is intended for users aged 18 and older. If you are under 18, you should use this application only under parental or guardian supervision.\n\n'
               'If we discover that we have collected information from a child under 13 without proper consent, we will delete that information immediately.',
             ),
             
             _buildSection(
               theme,
               '9. Health Information Privacy (HIPAA Considerations)',
-              'While OsteoCare+ handles sensitive health information, please note:\n\n'
+              'While OssoPulse handles sensitive health information, please note:\n\n'
               '• We are not a covered entity under HIPAA as we do not provide medical treatment or services\n\n'
               '• Our service is informational and educational, not diagnostic or therapeutic\n\n'
               '• We follow industry best practices for health data protection\n\n'
@@ -141,7 +141,7 @@ class PrivacyPage extends StatelessWidget {
             _buildSection(
               theme,
               '11. Cookies and Tracking',
-              'OsteoCare+ mobile application does not use cookies. However, we may collect:\n\n'
+              'OssoPulse mobile application does not use cookies. However, we may collect:\n\n'
               '• Device identifiers for authentication\n'
               '• Analytics data to improve app performance\n'
               '• Session information to maintain your logged-in state\n\n'
@@ -170,7 +170,7 @@ class PrivacyPage extends StatelessWidget {
             _buildSection(
               theme,
               '14. Your Consent',
-              'By using OsteoCare+, you consent to:\n\n'
+              'By using OssoPulse, you consent to:\n\n'
               '• This Privacy Policy\n'
               '• Collection and processing of your information as described\n'
               '• Use of your data for risk assessment and health recommendations\n'

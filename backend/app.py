@@ -5,6 +5,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import sqlite3
+from datetime import datetime, timedelta
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -34,7 +35,8 @@ def _resolve_path(path_val: str, default_rel: str) -> str:
 MODEL_PATH = _resolve_path(os.environ.get("MODEL_PATH", ""), os.path.join("artifacts", "calibrated_model.pkl"))
 FEATURES_PATH = _resolve_path(os.environ.get("FEATURES_PATH", ""), os.path.join("artifacts", "feature_order.json"))
 DB_PATH = _resolve_path(os.environ.get("USER_DB_PATH", ""), "users.db")
-API_KEY = os.environ.get("API_KEY", "")
+# Set default dev API key for easy development
+API_KEY = os.environ.get("API_KEY", "dev-key")
 
 app = Flask(__name__)
 CORS(app)
@@ -103,9 +105,10 @@ SURVEY_QUESTIONS = [
         "question": "What is your height and weight?",
         "type": "height_weight",
         "options": [],
-        "help_text": "Enter your height (cm) and weight (kg) to calculate BMI",
+        "help_text": "Enter your height in feet and inches and weight in kilograms.",
         "sub_fields": [
-            {"field_name": "height_cm", "label": "Height (cm)", "type": "number_input", "required": True},
+            {"field_name": "height_feet", "label": "Height (Feet)", "type": "dropdown", "required": True, "options": [4, 5, 6, 7]},
+            {"field_name": "height_inches", "label": "Height (Inches)", "type": "dropdown", "required": True, "options": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]},
             {"field_name": "weight_kg", "label": "Weight (kg)", "type": "number_input", "required": True},
         ],
         "required": True,
@@ -176,13 +179,15 @@ SURVEY_QUESTIONS = [
     {
         "id": 9,
         "field_name": "arthritis",
-        "question": "Has a doctor diagnosed you with arthritis?",
+        "question": "Has a doctor ever told you that you have arthritis (joint disease)?",
         "type": "yes_no",
         "options": [
             {"value": "Yes", "label": "Yes"},
             {"value": "No", "label": "No"},
         ],
-        "help_text": "Arthritis can impact bone health and mobility",
+        "help_text": "Arthritis is a long-term joint condition that causes pain, stiffness, or swelling, especially in knees, hips, hands, or spine.",
+        "note_text": "This refers only to a diagnosis given by a doctor.",
+        "info_text": "What is arthritis?\\n\\n• A condition affecting joints\\n• Causes long-term pain or stiffness\\n• Common in older adults\\n• Includes osteoarthritis and rheumatoid arthritis\\n• This question refers to a confirmed medical diagnosis",
         "required": False,
     },
     {
@@ -358,6 +363,22 @@ def _risk_message(level: str) -> str:
     return "Strong osteoporosis risk patterns observed. Preventive action and clinical screening advised."
 
 
+def _get_reassessment_days(risk_level: str) -> int:
+    if risk_level == "Low":
+        return 180
+    if risk_level == "Moderate":
+        return 90
+    if risk_level == "High":
+        return 30
+    return 90
+
+
+def _compute_next_reassessment_date(risk_level: str) -> str:
+    days = _get_reassessment_days(risk_level)
+    next_date = datetime.now() + timedelta(days=days)
+    return next_date.strftime("%Y-%m-%d")
+
+
 def _generate_tasks(form_entry: dict) -> list[str]:
     tasks: list[str] = []
     bmi = _compute_bmi(form_entry)
@@ -386,7 +407,13 @@ def _medical_alerts(form_entry: dict) -> list[str]:
         form_entry.get("lung_disease"),
         form_entry.get("heart_failure"),
     ]
-    if any(str(c).lower() == "yes" for c in conditions):
+    # Handle both boolean (true/false) and string ("Yes"/"No") values
+    def is_positive(val):
+        if isinstance(val, bool):
+            return val
+        return str(val).lower() == "yes"
+    
+    if any(is_positive(c) for c in conditions):
         alerts.append("Existing medical condition may increase bone risk. Clinical screening recommended.")
 
     # General health signal
@@ -416,13 +443,18 @@ def _map_form_entry(form_entry: dict, feature_order: list[str]) -> dict:
 
     # BMI from height/weight if present
     if "BMXBMI" in row:
-        h = form_entry.get("height_cm")
+        feet = form_entry.get("height_feet")
+        inches = form_entry.get("height_inches")
         w = form_entry.get("weight_kg")
-        if h is None or w is None:
-            raise ValueError("'height_cm' and 'weight_kg' are required to compute BMI")
+        if feet is None or inches is None or w is None:
+            raise ValueError("'height_feet', 'height_inches', and 'weight_kg' are required to compute BMI")
         try:
-            h_m = float(h) / 100.0
+            feet_val = float(feet)
+            inches_val = float(inches)
             w_kg = float(w)
+            # height_cm = (feet * 30.48) + (inches * 2.54)
+            height_cm = (feet_val * 30.48) + (inches_val * 2.54)
+            h_m = height_cm / 100.0
             bmi = w_kg / (h_m * h_m) if h_m > 0 else 0
         except Exception as exc:  # pragma: no cover - bad numeric input
             raise ValueError(f"Invalid height/weight: {exc}")
@@ -548,6 +580,49 @@ def api_get_profile():
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
+@app.route("/api/user/preferences", methods=["POST"])
+@token_required
+def api_update_preferences():
+    """
+    Update user preferences (e.g., language).
+    Protected route - requires JWT token.
+    """
+    try:
+        user_id = request.current_user['user_id']
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
+        
+        preferred_language = data.get('preferred_language')
+        
+        # Validate language
+        valid_languages = ['english', 'hindi', 'telugu']
+        if preferred_language and preferred_language not in valid_languages:
+            return jsonify({"error": f"Invalid language. Must be one of: {', '.join(valid_languages)}"}), 400
+        
+        # Update database
+        conn = get_db_connection(DB_PATH)
+        cursor = conn.cursor()
+        
+        if preferred_language:
+            cursor.execute(
+                "UPDATE users SET preferred_language = ? WHERE id = ?",
+                (preferred_language, user_id)
+            )
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            "message": "Preferences updated successfully",
+            "preferred_language": preferred_language
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
 # ------------------------------------------
 # Survey and Prediction Routes
 # ------------------------------------------
@@ -593,7 +668,8 @@ def submit_survey():
         "survey_data": {
             "age": 60,
             "gender": "Female",
-            "height_cm": 160,
+            "height_feet": 5,
+            "height_inches": 6,
             "weight_kg": 70,
             "calcium_frequency": "Daily",
             "memory_issue": "No",
@@ -633,6 +709,7 @@ def submit_survey():
         prob = model.predict_proba(X)[:, 1]
         pred = (prob >= threshold_val).astype(int)
         risk_level = _risk_level(prob[0])
+        next_reassessment_date = _compute_next_reassessment_date(risk_level)
         message = _risk_message(risk_level)
         tasks = _generate_tasks(survey_data)
         alerts = _medical_alerts(survey_data)
@@ -644,6 +721,8 @@ def submit_survey():
         "prediction": int(pred[0]),
         "probability": float(prob[0]),
         "risk_level": risk_level,
+        "risk_score": int(round(float(prob[0]) * 100)),
+        "next_reassessment_date": next_reassessment_date,
         "message": message,
         "recommended_tasks": tasks,
         "medical_alerts": alerts,
@@ -655,6 +734,14 @@ def submit_survey():
         "probability": float(prob[0]),
         "inputs": survey_data,
     })
+
+    # Save latest risk snapshot for dashboard/reassessment timeline
+    _save_risk_assessment(
+        user_id=user_id,
+        risk_score=float(prob[0]) * 100.0,
+        risk_level=risk_level,
+        next_reassessment_date=next_reassessment_date,
+    )
     
     return jsonify(response_body)
 
@@ -814,6 +901,21 @@ def _save_prediction(user_id: str, endpoint: str, payload: dict):
         conn.close()
 
 
+def _save_risk_assessment(user_id: str, risk_score: float, risk_level: str, next_reassessment_date: str):
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            """
+            INSERT INTO risk_assessments (user_id, risk_score, risk_level, next_reassessment_date)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, risk_score, risk_level, next_reassessment_date),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _get_history(user_id: str, limit: int = 50) -> list[dict]:
     _ensure_predictions_table()
     conn = sqlite3.connect(DB_PATH)
@@ -868,14 +970,24 @@ def _validate_form_input(form: dict) -> tuple[bool, str]:
         age = float(form.get("age", 0))
         if age < 18 or age > 100:
             return False, "age must be between 18 and 100"
-        h = float(form.get("height_cm", 0))
-        w = float(form.get("weight_kg", 0))
-        bmi = w / ((h / 100) ** 2) if h > 0 else 0
+        # Convert feet and inches to cm
+        feet = form.get("height_feet")
+        inches = form.get("height_inches")
+        weight = form.get("weight_kg")
+        if feet is None or inches is None or weight is None:
+            return False, "height (feet and inches) and weight are required"
+        feet_val = float(feet)
+        inches_val = float(inches)
+        weight_val = float(weight)
+        # height_cm = (feet * 30.48) + (inches * 2.54)
+        height_cm = (feet_val * 30.48) + (inches_val * 2.54)
+        bmi = weight_val / ((height_cm / 100) ** 2) if height_cm > 0 else 0
         if bmi < 10 or bmi > 60:
             return False, "BMI must be between 10 and 60"
     except Exception:
         return False, "numeric fields invalid"
 
+    # Yes/No fields with flexible validation
     yes_no_fields = [
         "memory_issue",
         "mobility_climb",
@@ -888,12 +1000,21 @@ def _validate_form_input(form: dict) -> tuple[bool, str]:
         "smoking",
     ]
     for key in yes_no_fields:
-        val = str(form.get(key, "")).strip().lower()
-        if val not in {"", "yes", "no"}:
-            return False, f"{key} must be Yes or No"
+        val = form.get(key, "")
+        # Accept boolean (true/false), empty string, or flexible yes/no values
+        if isinstance(val, bool):
+            continue
+        val_str = str(val).strip().lower()
+        # Accept: empty, yes, no, y, n, true, false, 1, 0, and other flexible variations
+        valid_yes_no = {"", "yes", "no", "y", "n", "true", "false", "1", "0"}
+        if val_str not in valid_yes_no:
+            return False, f"{key} must be Yes, No, or boolean"
 
     alcohol = str(form.get("alcohol", "")).strip().lower()
-    if alcohol and alcohol not in {"none", "occasionally", "frequently"}:
+    # Accept flexible alcohol values: accepts "yes"/"no"/"maybe"/"sometimes"/"rarely" etc
+    # Maps them appropriately for the ML model
+    valid_alcohol = {"none", "no", "never", "occasionally", "sometimes", "frequently", "yes", "maybe", "rarely", "daily"}
+    if alcohol and alcohol not in valid_alcohol:
         return False, "alcohol must be None, Occasionally, or Frequently"
 
     gender = str(form.get("gender", "")).strip().lower()
@@ -912,11 +1033,11 @@ def health():
 def app_info():
     """Public endpoint providing application metadata (no authentication required)."""
     return jsonify({
-        "app_name": "OsteoCare+",
+        "app_name": "OssoPulse",
         "version": "1.0.0",
         "description": "AI-based osteoporosis risk screening tool",
         "disclaimer": "This app does not provide medical diagnosis. Results are educational risk estimates only.",
-        "contact": "support@osteocare.app",
+        "contact": "support@ossopulse.app",
         "privacy_url": "/privacy",
         "terms_url": "/terms"
     })
@@ -926,7 +1047,7 @@ def app_info():
 def voice_script():
     """Public endpoint providing approved landing narration text for TTS."""
     script = (
-        "Hello and welcome to OsteoCare Plus.\n\n"
+        "Hello and welcome to OssoPulse.\n\n"
         "This application helps you understand your osteoporosis risk level in a simple and clear manner.\n\n"
         "Please note carefully, this app does not diagnose osteoporosis and it does not replace consultation with a qualified medical professional. "
         "It only provides an AI-based risk assessment for awareness purposes.\n\n"
@@ -942,7 +1063,7 @@ def voice_script():
         "Osteoporosis affects over 200 million people worldwide. One in three women and one in five men above the age of fifty are at risk.\n\n"
         "It is always better to be aware early and take preventive steps.\n\n"
         "To continue, please select Sign Up if you are new, or Login if you already have an account.\n\n"
-        "Thank you for choosing OsteoCare Plus."
+        "Thank you for choosing OssoPulse."
     )
     return jsonify({"script": script})
 
@@ -1075,6 +1196,134 @@ def predict_form():
     })
 
     return jsonify(response_body)
+
+
+# ============ DASHBOARD ENDPOINTS ============
+
+@app.route("/api/user/dashboard", methods=["GET"])
+@token_required
+def api_dashboard():
+    """
+    Get dashboard data for logged-in user.
+    Includes user info, latest risk assessment, recommendations preview, and reminder status.
+    """
+    try:
+        user_id = request.current_user['user_id']
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Get user info
+        cursor.execute("SELECT full_name, phone_number, preferred_language FROM users WHERE id = ?", (user_id,))
+        user_row = cursor.fetchone()
+        if not user_row:
+            return jsonify({"error": "User not found"}), 404
+        
+        full_name = user_row["full_name"]
+        phone_number = user_row["phone_number"]
+        preferred_language = user_row["preferred_language"] or "english"
+        
+        # Get latest risk assessment
+        cursor.execute("""
+            SELECT risk_score, risk_level, created_at, next_reassessment_date FROM risk_assessments
+            WHERE user_id = ? ORDER BY created_at DESC LIMIT 1
+        """, (user_id,))
+        risk_row = cursor.fetchone()
+        
+        risk_data = None
+        recommendations_preview = []
+        
+        if risk_row:
+            risk_data = {
+                "risk_score": risk_row["risk_score"],
+                "risk_level": risk_row["risk_level"],
+                "last_assessment_date": risk_row["created_at"],
+                "next_reassessment_date": risk_row["next_reassessment_date"],
+            }
+            
+            # Get recommendations preview (top 3)
+            cursor.execute("""
+                SELECT recommendation_text FROM recommendations
+                WHERE user_id = ? ORDER BY created_at DESC LIMIT 3
+            """, (user_id,))
+            recommendations_preview = [
+                row["recommendation_text"] for row in cursor.fetchall()
+            ]
+        
+        conn.close()
+        
+        return jsonify({
+            "full_name": full_name,
+            "phone_number": phone_number,
+            "preferred_language": preferred_language,
+            "risk": risk_data,
+            "recommendations_preview": recommendations_preview,
+            "reminders_enabled": True,  # Default to enabled for new users
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/user/recommendations", methods=["GET"])
+@token_required
+def api_get_recommendations():
+    """
+    Get full list of recommendations for user.
+    """
+    try:
+        user_id = request.current_user['user_id']
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT recommendation_text, category FROM recommendations
+            WHERE user_id = ? ORDER BY created_at DESC
+        """, (user_id,))
+        
+        recommendations = [
+            {
+                "text": row["recommendation_text"],
+                "category": row["category"],
+            }
+            for row in cursor.fetchall()
+        ]
+        
+        conn.close()
+        
+        return jsonify({
+            "recommendations": recommendations,
+            "count": len(recommendations),
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/user/reminders", methods=["POST"])
+@token_required
+def api_toggle_reminders():
+    """
+    Enable or disable reminders for user.
+    Request body: {"enabled": true/false}
+    """
+    try:
+        user_id = request.current_user['user_id']
+        data = request.get_json()
+        enabled = data.get("enabled", True)
+        
+        # TODO: Store reminder preference in database
+        # For now, just return success
+        
+        return jsonify({
+            "reminders_enabled": enabled,
+            "message": f"Reminders {('enabled' if enabled else 'disabled')}",
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 
 if __name__ == "__main__":

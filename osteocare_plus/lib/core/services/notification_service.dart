@@ -11,6 +11,7 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
+  static const int reassessmentReminderId = 1001;
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -63,7 +64,7 @@ class NotificationService {
 
     await _plugin.zonedSchedule(
       id: 0,
-      title: 'OsteoCare+ daily tip',
+      title: 'OssoPulse daily tip',
       body:
           message ?? 'Take a few minutes to move and protect your bones today.',
       scheduledDate: scheduled,
@@ -71,6 +72,50 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.time,
     );
+  }
+
+  Future<void> scheduleReassessmentReminder({
+    required DateTime when,
+    String title = 'Bone Health Reminder',
+    String body = 'It’s time to reassess your osteoporosis risk in OssoPulse.',
+  }) async {
+    if (!_initialized) {
+      await initialize();
+    }
+
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'bone_health_reassessment',
+        'Bone health reassessment reminders',
+        channelDescription:
+            'Scheduled reminders for osteoporosis risk reassessment.',
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+    );
+
+    final scheduled = tz.TZDateTime.from(when, tz.local);
+    final now = tz.TZDateTime.now(tz.local);
+
+    if (!scheduled.isAfter(now)) {
+      return;
+    }
+
+    await _plugin.zonedSchedule(
+      id: reassessmentReminderId,
+      title: title,
+      body: body,
+      scheduledDate: scheduled,
+      notificationDetails: details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    );
+  }
+
+  Future<void> cancelReassessmentReminder() async {
+    if (!_initialized) {
+      await initialize();
+    }
+    await _plugin.cancel(id: reassessmentReminderId);
   }
 }
 

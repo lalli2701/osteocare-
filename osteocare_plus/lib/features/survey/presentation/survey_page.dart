@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../presentation/result_page.dart';
-import '../../chatbot/presentation/assistant_fab.dart';
+import '../../../core/auth/auth_service.dart';
+import '../../../core/services/notification_service.dart';
 
 class SurveyPage extends StatefulWidget {
   const SurveyPage({super.key});
@@ -18,10 +21,15 @@ class SurveyPage extends StatefulWidget {
 class _SurveyPageState extends State<SurveyPage> {
   List<Map<String, dynamic>> _questions = [];
   final Map<String, dynamic> _formData = {};
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
   int _currentQuestionIndex = 0;
   bool _isLoading = true;
   bool _isSubmitting = false;
   String? _errorMessage;
+
+  static const _riskLevelKey = 'risk_level';
+  static const _nextReassessmentDateKey = 'next_reassessment_date';
+  static const _reminderEnabledKey = 'reminder_enabled';
 
   @override
   void initState() {
@@ -69,11 +77,12 @@ class _SurveyPageState extends State<SurveyPage> {
     if (isRequired) {
       // Special handling for height_weight type that has sub_fields
       if (fieldName == 'height_weight') {
-        final heightCm = _formData['height_cm'];
-        final weightKg = _formData['weight_kg'];
-        if (heightCm == null || weightKg == null || heightCm == 0 || weightKg == 0) {
+        final feet = _formData['height_feet'];
+        final inches = _formData['height_inches'];
+        final weight = _formData['weight_kg'];
+        if (feet == null || inches == null || weight == null || weight == 0) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please enter both height and weight')),
+            const SnackBar(content: Text('Please enter height (feet and inches) and weight')),
           );
           return;
         }
@@ -101,6 +110,25 @@ class _SurveyPageState extends State<SurveyPage> {
     }
   }
 
+  bool _isCurrentQuestionComplete() {
+    final currentQ = _questions[_currentQuestionIndex];
+    final fieldName = currentQ['field_name'];
+    final isRequired = currentQ['required'] == true;
+
+    if (!isRequired) {
+      return true;
+    }
+
+    if (fieldName == 'height_weight') {
+      final feet = _formData['height_feet'];
+      final inches = _formData['height_inches'];
+      final weight = _formData['weight_kg'];
+      return feet != null && inches != null && weight != null && weight > 0;
+    }
+
+    return _formData[fieldName] != null;
+  }
+
   Future<void> _submitSurvey() async {
     setState(() => _isSubmitting = true);
 
@@ -110,11 +138,16 @@ class _SurveyPageState extends State<SurveyPage> {
         'survey_data': _formData,
       };
 
+      final userData = await AuthService.instance.getUserData();
+      final userId = (userData?['id']?.toString().trim().isNotEmpty ?? false)
+          ? userData!['id'].toString()
+          : 'user_${DateTime.now().millisecondsSinceEpoch}';
+
       final response = await http.post(
         Uri.parse('http://localhost:5000/survey/submit'),
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': 'user_${DateTime.now().millisecondsSinceEpoch}',
+          'X-User-Id': userId,
           'X-API-Key': 'dev-key',
         },
         body: jsonEncode(surveyPayload),
@@ -125,11 +158,19 @@ class _SurveyPageState extends State<SurveyPage> {
 
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
+        await _persistAndScheduleReassessment(result);
         if (mounted) {
           context.go(ResultPage.routePath, extra: result);
         }
       } else {
-        throw Exception('Survey submission failed: ${response.statusCode}');
+        String backendError = 'Survey submission failed: ${response.statusCode}';
+        try {
+          final errJson = jsonDecode(response.body);
+          backendError = errJson['error']?.toString() ?? backendError;
+        } catch (_) {
+          // Keep default error message
+        }
+        throw Exception(backendError);
       }
     } catch (e) {
       if (mounted) {
@@ -139,6 +180,42 @@ class _SurveyPageState extends State<SurveyPage> {
         setState(() => _isSubmitting = false);
       }
     }
+  }
+
+  int _getReassessmentDays(String riskLevel) {
+    switch (riskLevel) {
+      case 'Low':
+        return 180;
+      case 'Moderate':
+        return 90;
+      case 'High':
+        return 30;
+      default:
+        return 90;
+    }
+  }
+
+  Future<void> _persistAndScheduleReassessment(Map<String, dynamic> result) async {
+    final riskLevel = (result['risk_level']?.toString() ?? 'Moderate').trim();
+    final backendNextDate = result['next_reassessment_date']?.toString();
+
+    DateTime nextDate;
+    if (backendNextDate != null && backendNextDate.isNotEmpty) {
+      nextDate = DateTime.parse(backendNextDate);
+    } else {
+      nextDate = DateTime.now().add(Duration(days: _getReassessmentDays(riskLevel)));
+    }
+
+    await _storage.write(key: _riskLevelKey, value: riskLevel);
+    await _storage.write(
+      key: _nextReassessmentDateKey,
+      value: nextDate.toIso8601String(),
+    );
+    await _storage.write(key: _reminderEnabledKey, value: 'true');
+
+    await NotificationService.instance.scheduleReassessmentReminder(
+      when: DateTime(nextDate.year, nextDate.month, nextDate.day, 9, 0),
+    );
   }
 
   Widget _buildQuestionInput(Map<String, dynamic> question) {
@@ -183,33 +260,80 @@ class _SurveyPageState extends State<SurveyPage> {
         );
 
       case 'yes_no':
-        final currentValue = _formData[fieldName] as String?;
+        final currentValue = _formData[fieldName];
+        final infoText = question['info_text'] as String?;
+        final noteText = question['note_text'] as String?;
+        
+        // For arthritis, we store boolean; for others, we store string for backward compatibility
+        final isArthritis = fieldName == 'arthritis';
+        final isYesSelected = isArthritis ? (currentValue == true) : (currentValue == 'Yes');
+        final isNoSelected = isArthritis ? (currentValue == false) : (currentValue == 'No');
+        
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              question['question'],
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    question['question'],
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
+                ),
+                if (infoText != null) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.info_outline, size: 20),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('What is arthritis?'),
+                          content: Text(
+                            infoText.replaceAll('\\n', '\n'),
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Got it'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ],
             ),
             const SizedBox(height: 12),
             Text(
               question['help_text'] ?? '',
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
+            if (noteText != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                noteText,
+                style: TextStyle(fontSize: 12, color: Colors.grey[500], fontStyle: FontStyle.italic),
+              ),
+            ],
             const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => setState(() => _formData[fieldName] = 'Yes'),
+                    onPressed: () => setState(() {
+                      _formData[fieldName] = isArthritis ? true : 'Yes';
+                    }),
                     style: OutlinedButton.styleFrom(
-                      backgroundColor: currentValue == 'Yes' ? Colors.blue : null,
+                      backgroundColor: isYesSelected ? Colors.blue : null,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
                     child: Text(
                       'Yes',
                       style: TextStyle(
-                        color: currentValue == 'Yes' ? Colors.white : null,
+                        color: isYesSelected ? Colors.white : null,
                       ),
                     ),
                   ),
@@ -217,15 +341,17 @@ class _SurveyPageState extends State<SurveyPage> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => setState(() => _formData[fieldName] = 'No'),
+                    onPressed: () => setState(() {
+                      _formData[fieldName] = isArthritis ? false : 'No';
+                    }),
                     style: OutlinedButton.styleFrom(
-                      backgroundColor: currentValue == 'No' ? Colors.blue : null,
+                      backgroundColor: isNoSelected ? Colors.blue : null,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
                     child: Text(
                       'No',
                       style: TextStyle(
-                        color: currentValue == 'No' ? Colors.white : null,
+                        color: isNoSelected ? Colors.white : null,
                       ),
                     ),
                   ),
@@ -236,8 +362,35 @@ class _SurveyPageState extends State<SurveyPage> {
         );
 
       case 'height_weight':
-        final subFields = question['sub_fields'] as List?;
+        final feet = _formData['height_feet'] as int?;
+        final inches = _formData['height_inches'] as int?;
+        final weight = _formData['weight_kg'] as double?;
+        
+        // Calculate BMI
+        double? bmi;
+        String? bmiStatus;
+        
+        if (feet != null && inches != null && weight != null && weight > 0) {
+          // height_cm = (feet * 30.48) + (inches * 2.54)
+          final heightCm = (feet * 30.48) + (inches * 2.54);
+          final heightM = heightCm / 100;
+          bmi = weight / (heightM * heightM);
+          
+          if (bmi < 18.5) {
+            bmiStatus = 'Your BMI: ${bmi.toStringAsFixed(1)} (Underweight)';
+          } else if (bmi < 25) {
+            bmiStatus = 'Your BMI: ${bmi.toStringAsFixed(1)} (Normal range)';
+          } else if (bmi < 30) {
+            bmiStatus = 'Your BMI: ${bmi.toStringAsFixed(1)} (Overweight)';
+          } else {
+            bmiStatus = 'Your BMI: ${bmi.toStringAsFixed(1)} (Obese)';
+          }
+        }
+        
+        final isComplete = feet != null && inches != null && weight != null;
+        
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               question['question'],
@@ -249,28 +402,98 @@ class _SurveyPageState extends State<SurveyPage> {
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
-            if (subFields != null)
-              ...subFields.map((subField) {
-                final subFieldName = subField['field_name'];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: TextFormField(
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      labelText: subField['label'],
-                      border: const OutlineInputBorder(),
+            // Height - Feet dropdown
+            DropdownButtonFormField<int>(
+              initialValue: feet,
+              decoration: InputDecoration(
+                labelText: 'Height (Feet)',
+                border: const OutlineInputBorder(),
+              ),
+              items: List.generate(4, (i) => i + 4)
+                  .map((value) => DropdownMenuItem<int>(
+                        value: value,
+                        child: Text('$value ft'),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() => _formData['height_feet'] = value);
+              },
+            ),
+            const SizedBox(height: 12),
+            // Height - Inches dropdown
+            DropdownButtonFormField<int>(
+              initialValue: inches,
+              decoration: InputDecoration(
+                labelText: 'Height (Inches)',
+                border: const OutlineInputBorder(),
+              ),
+              items: List.generate(12, (i) => i)
+                  .map((value) => DropdownMenuItem<int>(
+                        value: value,
+                        child: Text('$value in'),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() => _formData['height_inches'] = value);
+              },
+            ),
+            const SizedBox(height: 12),
+            // Weight input
+            TextFormField(
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: 'Weight (kg)',
+                border: const OutlineInputBorder(),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _formData['weight_kg'] = value.isEmpty ? null : double.tryParse(value);
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            // BMI Display
+            if (isComplete && bmiStatus != null)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  border: Border.all(color: Colors.blue[300] ?? Colors.blue),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      bmiStatus,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
                     ),
-                    onChanged: (value) {
-                      setState(() {
-                        _formData[subFieldName] =
-                            value.isEmpty ? null : double.tryParse(value);
-                      });
-                    },
-                  ),
-                );
-              }),
+                    const SizedBox(height: 8),
+                    Text(
+                      'BMI is calculated for general health reference and is not a diagnostic measurement.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (feet == null || inches == null || weight == null)
+              Text(
+                'Fill all fields to see BMI',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[500],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
           ],
         );
+
 
       default:
         return Text('Unknown question type: $type');
@@ -326,80 +549,104 @@ class _SurveyPageState extends State<SurveyPage> {
         title: const Text('Bone Health Survey'),
         elevation: 0,
       ),
-      floatingActionButton: const AssistantFab(),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      body: Column(
-        children: [
-          // Progress bar
-          LinearProgressIndicator(value: progress),
-          // Question number
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Question ${_currentQuestionIndex + 1} of ${_questions.length}',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[600],
+      body: Focus(
+        autofocus: true,
+        onKeyEvent: (_, event) {
+          if (event is! KeyDownEvent) {
+            return KeyEventResult.ignored;
+          }
+
+          if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            if (!_isSubmitting && _isCurrentQuestionComplete()) {
+              _nextQuestion();
+            }
+            return KeyEventResult.handled;
+          }
+
+          if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            _previousQuestion();
+            return KeyEventResult.handled;
+          }
+
+          return KeyEventResult.ignored;
+        },
+        child: Column(
+          children: [
+            // Progress bar
+            LinearProgressIndicator(value: progress),
+            // Question number
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Question ${_currentQuestionIndex + 1} of ${_questions.length}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
                 ),
               ),
             ),
-          ),
-          // Question content
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              child: _buildQuestionInput(currentQuestion),
+            // Question content
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                child: _buildQuestionInput(currentQuestion),
+              ),
             ),
-          ),
-          // Navigation buttons
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Row(
-              children: [
-                if (_currentQuestionIndex > 0) ...[
-                  OutlinedButton(
-                    onPressed: _previousQuestion,
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 16,
+            // Navigation buttons
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Row(
+                children: [
+                  if (_currentQuestionIndex > 0) ...[
+                    OutlinedButton.icon(
+                      onPressed: _previousQuestion,
+                      icon: const Icon(Icons.arrow_back),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 16,
+                        ),
                       ),
+                      label: const Text('Back'),
                     ),
-                    child: const Text('Back'),
-                  ),
-                  const SizedBox(width: 16),
-                ] else ...[
-                  const SizedBox(width: 0),
-                ],
-                Expanded(
-                  child: FilledButton(
-                    onPressed: _isSubmitting ? null : _nextQuestion,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: _isSubmitting
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                    const SizedBox(width: 16),
+                  ],
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: (_isSubmitting || !_isCurrentQuestionComplete()) ? null : _nextQuestion,
+                      icon: Icon(
+                        _currentQuestionIndex == _questions.length - 1
+                            ? Icons.check
+                            : Icons.arrow_forward,
+                      ),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      label: _isSubmitting
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : Text(
+                              _currentQuestionIndex == _questions.length - 1
+                                  ? 'Submit'
+                                  : 'Next',
                             ),
-                          )
-                        : Text(
-                            _currentQuestionIndex == _questions.length - 1
-                                ? 'Submit'
-                                : 'Next',
-                          ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

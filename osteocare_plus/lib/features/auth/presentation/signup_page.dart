@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_service.dart';
+import '../../dashboard/presentation/dashboard_wrapper.dart';
 import 'login_page.dart';
 import 'terms_page.dart';
 import 'privacy_page.dart';
@@ -57,11 +58,11 @@ class _SignupPageState extends State<SignupPage> {
       if (!mounted) return;
 
       if (result['success'] == true) {
-        _showSuccess('Account created successfully! Please login.');
-        // Navigate to login page
+        _showSuccess('Account created successfully! Redirecting...');
+        // Navigate directly to dashboard
         Future.delayed(const Duration(seconds: 1), () {
           if (mounted) {
-            context.go(LoginPage.routePath);
+            context.go(DashboardWrapper.routePath);
           }
         });
       } else {
@@ -114,7 +115,7 @@ class _SignupPageState extends State<SignupPage> {
                 // Logo
                 Center(
                   child: Image.asset(
-                    'assets/osteocare_logo.jpeg',
+                    'assets/ossopulse_logo.jpeg',
                     height: 100,
                     width: 100,
                     errorBuilder: (context, error, stackTrace) {
@@ -131,7 +132,7 @@ class _SignupPageState extends State<SignupPage> {
                 
                 // App Name
                 Text(
-                  'OsteoCare+',
+                  'OssoPulse',
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: theme.colorScheme.primary,

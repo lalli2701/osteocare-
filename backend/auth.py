@@ -1,5 +1,5 @@
 """
-Authentication module for OsteoCare+ using JWT and bcrypt.
+Authentication module for OssoPulse using JWT and bcrypt.
 """
 import sqlite3
 import os
@@ -35,15 +35,69 @@ def init_auth_db(db_path: str):
             full_name TEXT NOT NULL,
             phone_number TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            preferred_language TEXT DEFAULT 'english',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_login TIMESTAMP
         )
     ''')
     
+    # Ensure migration-safe column for existing databases
+    cursor.execute("PRAGMA table_info(users)")
+    user_cols = [row[1] for row in cursor.fetchall()]
+    if "preferred_language" not in user_cols:
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN preferred_language TEXT DEFAULT 'english'"
+        )
+    
     # Create index for faster phone lookups
     cursor.execute('''
         CREATE INDEX IF NOT EXISTS idx_phone_number 
         ON users(phone_number)
+    ''')
+    
+    # Create risk_assessments table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS risk_assessments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            risk_score REAL NOT NULL,
+            risk_level TEXT NOT NULL,
+            next_reassessment_date TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    ''')
+
+    # Ensure migration-safe column for existing databases
+    cursor.execute("PRAGMA table_info(risk_assessments)")
+    risk_cols = [row[1] for row in cursor.fetchall()]
+    if "next_reassessment_date" not in risk_cols:
+        cursor.execute(
+            "ALTER TABLE risk_assessments ADD COLUMN next_reassessment_date TIMESTAMP"
+        )
+    
+    # Create index for user_id in risk_assessments
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_risk_user_id 
+        ON risk_assessments(user_id)
+    ''')
+    
+    # Create recommendations table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS recommendations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            recommendation_text TEXT NOT NULL,
+            category TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    ''')
+    
+    # Create index for user_id in recommendations
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_rec_user_id 
+        ON recommendations(user_id)
     ''')
     
     conn.commit()

@@ -1,6 +1,6 @@
 {
-    "name": "osteocare_plus",
-    "short_name": "osteocare_plus",
+    "name": "OssoPulse",
+    "short_name": "OssoPulse",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

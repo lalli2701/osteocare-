@@ -9,11 +9,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:osteocare_plus/main.dart';
 
 void main() {
-  testWidgets('OsteoCareApp builds without error',
+  testWidgets('OssoPulseApp builds without error',
       (WidgetTester tester) async {
     // Build our app and trigger a frame.
     // Note: Full app test would require Firebase initialization
     // This test verifies the app widget can be instantiated
-    expect(OsteoCareApp, isNotNull);
+    expect(OssoPulseApp, isNotNull);
   });
 }

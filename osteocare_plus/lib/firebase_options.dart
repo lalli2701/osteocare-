@@ -1,7 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
-/// Placeholder Firebase configuration for OsteoCare+.
+/// Placeholder Firebase configuration for OssoPulse.
 ///
 /// Replace the API keys and IDs in this file with real values generated
 /// by the Firebase console or the FlutterFire CLI before releasing.
