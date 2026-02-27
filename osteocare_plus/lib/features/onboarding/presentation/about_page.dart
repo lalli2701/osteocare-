@@ -14,7 +14,7 @@ class AboutPage extends StatelessWidget {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('About OsteoCare+'),
+        title: const Text('About OssoPulse'),
       ),
       floatingActionButton: const AssistantFab(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
@@ -24,7 +24,7 @@ class AboutPage extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Welcome to OsteoCare+',
+              'Welcome to OssoPulse',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -43,7 +43,7 @@ class AboutPage extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              '• OsteoCare+ is an educational tool, not a medical diagnosis.\n'
+              '• OssoPulse is an educational tool, not a medical diagnosis.\n'
               '• Always talk to your doctor or healthcare provider about any concerns.\n'
               '• The risk level shown is an estimate based on your answers.',
             ),

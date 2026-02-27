@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'chatbot_page.dart';
 
 class AssistantFab extends StatelessWidget {
-  const AssistantFab({super.key, this.label = 'OsteoCare+ AI'});
+  const AssistantFab({super.key, this.label = 'OssoPulse AI'});
 
   final String label;
 
@@ -21,7 +21,7 @@ class AssistantFab extends StatelessWidget {
 
     return Semantics(
       button: true,
-      label: 'Ask the OsteoCare+ assistant',
+      label: 'Ask the OssoPulse assistant',
       child: Material(
         color: Colors.transparent,
         elevation: 8,

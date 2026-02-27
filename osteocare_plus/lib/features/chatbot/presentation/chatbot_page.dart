@@ -20,7 +20,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
     const _Message(
       fromUser: false,
       text:
-          'Hi, I am the OsteoCare+ assistant. I can explain osteoporosis, how to prevent it, and what precautions to take. I do not replace a doctor.',
+          'Hi, I am the OssoPulse assistant. I can explain osteoporosis, how to prevent it, and what precautions to take. I do not replace a doctor.',
     ),
   ];
 
@@ -99,7 +99,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
         q.startsWith('hi ') ||
         q.startsWith('hello ') ||
         q.startsWith('hey ')) {
-      return 'Hi, I am the OsteoCare+ assistant. You can ask me about osteoporosis, how to prevent it, '
+      return 'Hi, I am the OssoPulse assistant. You can ask me about osteoporosis, how to prevent it, '
           'safe exercises, food for strong bones, or how to reduce your fracture risk.';
     }
 
@@ -167,7 +167,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('OsteoCare+ assistant'),
+        title: const Text('OssoPulse assistant'),
         actions: [
           IconButton(
             tooltip: _voiceEnabled ? 'Mute voice' : 'Enable voice',
