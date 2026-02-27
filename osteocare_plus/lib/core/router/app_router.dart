@@ -3,6 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/presentation/login_page.dart';
+import '../../features/auth/presentation/signup_page.dart';
+import '../../features/auth/presentation/terms_page.dart';
+import '../../features/auth/presentation/privacy_page.dart';
+import '../../features/onboarding/presentation/landing_page.dart';
 import '../../features/onboarding/presentation/about_page.dart';
 import '../../features/dashboard/presentation/dashboard_page.dart';
 import '../../features/survey/presentation/survey_page.dart';
@@ -20,8 +24,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const SplashPage(),
       ),
       GoRoute(
+        path: LandingPage.routePath,
+        builder: (context, state) => const LandingPage(),
+      ),
+      GoRoute(
         path: LoginPage.routePath,
         builder: (context, state) => const LoginPage(),
+      ),
+      GoRoute(
+        path: SignupPage.routePath,
+        builder: (context, state) => const SignupPage(),
+      ),
+      GoRoute(
+        path: TermsPage.routePath,
+        builder: (context, state) => const TermsPage(),
+      ),
+      GoRoute(
+        path: PrivacyPage.routePath,
+        builder: (context, state) => const PrivacyPage(),
       ),
       GoRoute(
         path: AboutPage.routePath,

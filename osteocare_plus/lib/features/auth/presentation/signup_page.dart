@@ -3,33 +3,37 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_service.dart';
-import '../../dashboard/presentation/dashboard_page.dart';
-import 'signup_page.dart';
+import 'login_page.dart';
 import 'terms_page.dart';
 import 'privacy_page.dart';
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+class SignupPage extends StatefulWidget {
+  const SignupPage({super.key});
 
-  static const routePath = '/login';
+  static const routePath = '/signup';
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<SignupPage> createState() => _SignupPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _SignupPageState extends State<SignupPage> {
   final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
   bool _isLoading = false;
   bool _showPassword = false;
+  bool _showConfirmPassword = false;
   bool _agreedToTerms = false;
 
   @override
   void dispose() {
+    _nameController.dispose();
     _phoneController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -44,7 +48,8 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
 
     try {
-      final result = await AuthService.instance.login(
+      final result = await AuthService.instance.signUp(
+        fullName: _nameController.text.trim(),
         phoneNumber: _phoneController.text.trim(),
         password: _passwordController.text,
       );
@@ -52,10 +57,16 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
 
       if (result['success'] == true) {
-        context.go(DashboardPage.routePath);
+        _showSuccess('Account created successfully! Please login.');
+        // Navigate to login page
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            context.go(LoginPage.routePath);
+          }
+        });
       } else {
         setState(() => _isLoading = false);
-        _showError(result['error'] ?? 'Login failed');
+        _showError(result['error'] ?? 'Signup failed');
       }
     } catch (e) {
       if (!mounted) return;
@@ -74,20 +85,12 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void _showForgotPassword() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Forgot Password'),
-        content: const Text(
-          'Please contact support to reset your password.\n\nFor demo purposes, you can create a new account.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -106,30 +109,30 @@ class _LoginPageState extends State<LoginPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 40),
+                const SizedBox(height: 20),
                 
                 // Logo
                 Center(
                   child: Image.asset(
                     'assets/osteocare_logo.jpeg',
-                    height: 120,
-                    width: 120,
+                    height: 100,
+                    width: 100,
                     errorBuilder: (context, error, stackTrace) {
                       return Icon(
                         Icons.health_and_safety,
-                        size: 120,
+                        size: 100,
                         color: theme.colorScheme.primary,
                       );
                     },
                   ),
                 ),
                 
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
                 
                 // App Name
                 Text(
                   'OsteoCare+',
-                  style: theme.textTheme.headlineLarge?.copyWith(
+                  style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: theme.colorScheme.primary,
                   ),
@@ -139,14 +142,36 @@ class _LoginPageState extends State<LoginPage> {
                 const SizedBox(height: 8),
                 
                 Text(
-                  'Predict & Prevent Osteoporosis',
+                  'Create your account',
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: Colors.grey[600],
                   ),
                   textAlign: TextAlign.center,
                 ),
                 
-                const SizedBox(height: 40),
+                const SizedBox(height: 32),
+                
+                // Full Name Field
+                TextFormField(
+                  controller: _nameController,
+                  decoration: InputDecoration(
+                    labelText: 'Full Name',
+                    hintText: 'Enter your full name',
+                    prefixIcon: const Icon(Icons.person),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  textCapitalization: TextCapitalization.words,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Full name is required';
+                    }
+                    return null;
+                  },
+                ),
+                
+                const SizedBox(height: 16),
                 
                 // Phone Number Field
                 TextFormField(
@@ -182,7 +207,7 @@ class _LoginPageState extends State<LoginPage> {
                   controller: _passwordController,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    hintText: 'Enter your password',
+                    hintText: 'Enter password (min 6 characters)',
                     prefixIcon: const Icon(Icons.lock),
                     suffixIcon: IconButton(
                       icon: Icon(
@@ -208,23 +233,40 @@ class _LoginPageState extends State<LoginPage> {
                   },
                 ),
                 
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 
-                // Forgot Password Link
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _showForgotPassword,
-                    child: Text(
-                      'Forgot Password?',
-                      style: TextStyle(
-                        color: theme.colorScheme.primary,
+                // Confirm Password Field
+                TextFormField(
+                  controller: _confirmPasswordController,
+                  decoration: InputDecoration(
+                    labelText: 'Confirm Password',
+                    hintText: 'Re-enter your password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _showConfirmPassword ? Icons.visibility : Icons.visibility_off,
                       ),
+                      onPressed: () {
+                        setState(() => _showConfirmPassword = !_showConfirmPassword);
+                      },
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
+                  obscureText: !_showConfirmPassword,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please confirm your password';
+                    }
+                    if (value != _passwordController.text) {
+                      return 'Passwords do not match';
+                    }
+                    return null;
+                  },
                 ),
                 
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 
                 // Terms & Privacy Checkbox
                 Row(
@@ -288,7 +330,7 @@ class _LoginPageState extends State<LoginPage> {
                 
                 const SizedBox(height: 24),
                 
-                // Login Button
+                // Sign Up Button
                 ElevatedButton(
                   onPressed: _isLoading ? null : _submit,
                   style: ElevatedButton.styleFrom(
@@ -309,7 +351,7 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         )
                       : const Text(
-                          'Login',
+                          'Sign Up',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -319,20 +361,20 @@ class _LoginPageState extends State<LoginPage> {
                 
                 const SizedBox(height: 16),
                 
-                // Link to Sign Up Page
+                // Link to Login Page
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      "Don't have an account? ",
+                      'Already have an account? ',
                       style: TextStyle(color: Colors.grey[600]),
                     ),
                     GestureDetector(
                       onTap: () {
-                        context.go(SignupPage.routePath);
+                        context.go(LoginPage.routePath);
                       },
                       child: Text(
-                        'Sign Up',
+                        'Login',
                         style: TextStyle(
                           color: theme.colorScheme.primary,
                           fontWeight: FontWeight.w600,

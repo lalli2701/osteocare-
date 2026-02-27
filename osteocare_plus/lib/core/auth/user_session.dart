@@ -3,18 +3,18 @@ class UserSession {
 
   static final UserSession instance = UserSession._internal();
 
-  String? uid;
-  String? name;
+  String? userId;
+  String? userName;
   String? phone;
   String? lastRiskLevel;
 
   void setUser({
-    required String uid,
-    required String name,
+    required String userId,
+    required String userName,
     required String phone,
   }) {
-    this.uid = uid;
-    this.name = name;
+    this.userId = userId;
+    this.userName = userName;
     this.phone = phone;
   }
 
@@ -23,10 +23,9 @@ class UserSession {
   }
 
   void clear() {
-    uid = null;
-    name = null;
+    userId = null;
+    userName = null;
     phone = null;
     lastRiskLevel = null;
   }
 }
-
