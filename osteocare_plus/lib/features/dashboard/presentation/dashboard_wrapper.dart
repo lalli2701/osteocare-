@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dashboard_page.dart';
 import '../../../features/survey/presentation/survey_page.dart';
+import '../../../features/chatbot/presentation/assistant_fab.dart';
 import 'tasks_page.dart';
 import 'profile_page.dart';
 
@@ -33,6 +34,7 @@ class _DashboardWrapperState extends State<DashboardWrapper> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _pages[_selectedIndex],
+      floatingActionButton: _selectedIndex != 1 ? const AssistantFab() : null,
       bottomNavigationBar: BottomNavigationBar(
         items: const [
           BottomNavigationBarItem(

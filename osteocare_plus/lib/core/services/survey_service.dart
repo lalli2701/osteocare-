@@ -45,7 +45,7 @@ class SurveyService {
   Future<List<dynamic>> _loadMasterQuestions() async {
     if (_masterQuestions != null) return _masterQuestions!;
     
-    final String jsonString = await rootBundle.loadString('assets/survey/survey_master.json');
+    final String jsonString = await rootBundle.loadString('survey/survey_master.json');
     _masterQuestions = jsonDecode(jsonString);
     return _masterQuestions!;
   }
@@ -58,7 +58,7 @@ class SurveyService {
 
     try {
       final String jsonString = await rootBundle.loadString(
-        'assets/translations/survey_questions/$languageCode.json',
+        'survey/survey_questions/$languageCode.json',
       );
       _currentLanguageQuestions = jsonDecode(jsonString);
       _lastLoadedLanguage = languageCode;
