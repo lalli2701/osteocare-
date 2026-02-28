@@ -8,7 +8,7 @@ class SurveyQuestion {
   final String type;
   final String question;
   final String helpText;
-  final List<String> options;
+  final List<Map<String, dynamic>>? options; // Changed to support option metadata
   final bool required;
   final Map<String, dynamic>? subFields;
   final String? noteText;
@@ -20,7 +20,7 @@ class SurveyQuestion {
     required this.type,
     required this.question,
     required this.helpText,
-    this.options = const [],
+    this.options,
     this.required = false,
     this.subFields,
     this.noteText,
@@ -91,10 +91,19 @@ class SurveyService {
       final fieldName = master['field_name'] as String;
       final langData = languageQuestions[fieldName] as Map<String, dynamic>? ?? {};
       
-      // Parse options
-      List<String> options = [];
+      // Parse options with language translations
+      List<Map<String, dynamic>>? options;
       if (master['options'] != null) {
-        options = List<String>.from(master['options']);
+        options = [];
+        final masterOptions = master['options'] as List;
+        final langOptions = (langData['options'] as Map<String, dynamic>?) ?? {};
+        
+        for (var optValue in masterOptions) {
+          options.add({
+            'value': optValue,
+            'label': langOptions[optValue] ?? optValue,
+          });
+        }
       }
 
       // Parse sub_fields for height_weight

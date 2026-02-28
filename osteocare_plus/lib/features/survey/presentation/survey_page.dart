@@ -4,10 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../presentation/result_page.dart';
+import '../presentation/voice_question_widget.dart';
 import '../../../core/auth/auth_service.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/survey_service.dart';
+import '../../../core/services/voice_service.dart';
 
 class SurveyPage extends StatefulWidget {
   const SurveyPage({super.key});
@@ -19,47 +23,61 @@ class SurveyPage extends StatefulWidget {
 }
 
 class _SurveyPageState extends State<SurveyPage> {
-  List<Map<String, dynamic>> _questions = [];
+  late SurveyService _surveyService;
+  List<SurveyQuestion> _questions = [];
   final Map<String, dynamic> _formData = {};
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   int _currentQuestionIndex = 0;
   bool _isLoading = true;
   bool _isSubmitting = false;
   String? _errorMessage;
+  bool _voiceEnabled = true;
 
   static const _riskLevelKey = 'risk_level';
   static const _nextReassessmentDateKey = 'next_reassessment_date';
   static const _reminderEnabledKey = 'reminder_enabled';
+  static const _voiceEnabledKey = 'voice_enabled';
 
   @override
   void initState() {
     super.initState();
-    _loadQuestions();
+    _initializeSurvey();
+  }
+
+  Future<void> _initializeSurvey() async {
+    try {
+      // Initialize services
+      _surveyService = SurveyService();
+      await VoiceService().initialize();
+
+      // Load voice preference
+      final prefs = await SharedPreferences.getInstance();
+      _voiceEnabled = prefs.getBool(_voiceEnabledKey) ?? true;
+
+      // Load questions from SurveyService
+      await _loadQuestions();
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error initializing survey: ${e.toString()}';
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _loadQuestions() async {
     try {
-      // Fetch questions from backend API
-      final response = await http.get(
-        Uri.parse('http://localhost:5000/survey/questions'),
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw Exception('Request timeout'),
-      );
+      // Get questions from SurveyService (which handles master + translations)
+      final questions = await _surveyService.getQuestions();
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _questions = List<Map<String, dynamic>>.from(data['questions'] ?? []);
-          _isLoading = false;
-          // Initialize form data with empty values
-          for (var q in _questions) {
-            _formData[q['field_name']] = null;
-          }
-        });
-      } else {
-        throw Exception('Failed to load questions: ${response.statusCode}');
-      }
+      setState(() {
+        _questions = questions;
+        _isLoading = false;
+
+        // Initialize form data with empty values
+        for (var q in _questions) {
+          _formData[q.fieldName] = null;
+        }
+      });
     } catch (e) {
       setState(() {
         _errorMessage = 'Error loading survey: ${e.toString()}';
@@ -71,26 +89,27 @@ class _SurveyPageState extends State<SurveyPage> {
   void _nextQuestion() {
     // Validate current question if required
     final currentQ = _questions[_currentQuestionIndex];
-    final fieldName = currentQ['field_name'];
-    final isRequired = currentQ['required'] == true;
-    
-    if (isRequired) {
+
+    if (currentQ.required) {
       // Special handling for height_weight type that has sub_fields
-      if (fieldName == 'height_weight') {
+      if (currentQ.fieldName == 'height_weight') {
         final feet = _formData['height_feet'];
         final inches = _formData['height_inches'];
         final weight = _formData['weight_kg'];
         if (feet == null || inches == null || weight == null || weight == 0) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please enter height (feet and inches) and weight')),
+            const SnackBar(
+                content:
+                    Text('Please enter height (feet and inches) and weight')),
           );
           return;
         }
       } else {
         // Regular validation for other field types
-        if (_formData[fieldName] == null) {
+        if (_formData[currentQ.fieldName] == null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please answer this question before continuing')),
+            const SnackBar(
+                content: Text('Please answer this question before continuing')),
           );
           return;
         }
@@ -112,21 +131,41 @@ class _SurveyPageState extends State<SurveyPage> {
 
   bool _isCurrentQuestionComplete() {
     final currentQ = _questions[_currentQuestionIndex];
-    final fieldName = currentQ['field_name'];
-    final isRequired = currentQ['required'] == true;
 
-    if (!isRequired) {
+    if (!currentQ.required) {
       return true;
     }
 
-    if (fieldName == 'height_weight') {
+    if (currentQ.fieldName == 'height_weight') {
       final feet = _formData['height_feet'];
       final inches = _formData['height_inches'];
       final weight = _formData['weight_kg'];
       return feet != null && inches != null && weight != null && weight > 0;
     }
 
-    return _formData[fieldName] != null;
+    return _formData[currentQ.fieldName] != null;
+  }
+
+  /// Handle voice answer confirmation
+  void _handleVoiceAnswer(String fieldName, dynamic answer) {
+    setState(() {
+      _formData[fieldName] = answer;
+    });
+
+    // Auto-advance to next question for yes_no answers
+    final question =
+        _questions.firstWhere((q) => q.fieldName == fieldName, orElse: () {
+      return _questions[_currentQuestionIndex];
+    });
+
+    if (question.type == 'yes_no' && _isCurrentQuestionComplete()) {
+      // Slight delay to show confirmation
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          _nextQuestion();
+        }
+      });
+    }
   }
 
   Future<void> _submitSurvey() async {
@@ -218,24 +257,26 @@ class _SurveyPageState extends State<SurveyPage> {
     );
   }
 
-  Widget _buildQuestionInput(Map<String, dynamic> question) {
-    final fieldName = question['field_name'];
-    final type = question['type'];
-    final options = question['options'] as List?;
+  Widget _buildQuestionInput(SurveyQuestion question) {
+    final fieldName = question.fieldName;
+    final type = question.type;
+    final options = question.options;
 
     switch (type) {
       case 'number_input':
         return TextFormField(
-          keyboardType: const TextInputType.numberWithOptions(decimal: false),
+          keyboardType:
+              const TextInputType.numberWithOptions(decimal: false),
           decoration: InputDecoration(
-            labelText: question['question'],
+            labelText: question.question,
             hintText: 'Enter a number',
             border: const OutlineInputBorder(),
-            helperText: question['help_text'],
+            helperText: question.helpText,
           ),
           onChanged: (value) {
             setState(() {
-              _formData[fieldName] = value.isEmpty ? null : int.tryParse(value);
+              _formData[fieldName] =
+                  value.isEmpty ? null : int.tryParse(value);
             });
           },
         );
@@ -244,14 +285,14 @@ class _SurveyPageState extends State<SurveyPage> {
         return DropdownButtonFormField<String>(
           initialValue: _formData[fieldName] as String?,
           decoration: InputDecoration(
-            labelText: question['question'],
+            labelText: question.question,
             border: const OutlineInputBorder(),
-            helperText: question['help_text'],
+            helperText: question.helpText,
           ),
           items: options
               ?.map((opt) => DropdownMenuItem<String>(
                     value: opt['value'],
-                    child: Text(opt['label']),
+                    child: Text(opt['label'] ?? opt['value']),
                   ))
               .toList(),
           onChanged: (value) {
@@ -261,14 +302,18 @@ class _SurveyPageState extends State<SurveyPage> {
 
       case 'yes_no':
         final currentValue = _formData[fieldName];
-        final infoText = question['info_text'] as String?;
-        final noteText = question['note_text'] as String?;
-        
+        final infoText = question.infoText;
+        final noteText = question.noteText;
+
         // For arthritis, we store boolean; for others, we store string for backward compatibility
         final isArthritis = fieldName == 'arthritis';
-        final isYesSelected = isArthritis ? (currentValue == true) : (currentValue == 'Yes');
-        final isNoSelected = isArthritis ? (currentValue == false) : (currentValue == 'No');
-        
+        final isYesSelected = isArthritis
+            ? (currentValue == true)
+            : (currentValue == 'Yes');
+        final isNoSelected = isArthritis
+            ? (currentValue == false)
+            : (currentValue == 'No');
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -276,8 +321,9 @@ class _SurveyPageState extends State<SurveyPage> {
               children: [
                 Expanded(
                   child: Text(
-                    question['question'],
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                    question.question,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w500),
                   ),
                 ),
                 if (infoText != null) ...[
@@ -288,7 +334,7 @@ class _SurveyPageState extends State<SurveyPage> {
                       showDialog(
                         context: context,
                         builder: (context) => AlertDialog(
-                          title: const Text('What is arthritis?'),
+                          title: Text('What is ${question.fieldName}?'),
                           content: Text(
                             infoText.replaceAll('\\n', '\n'),
                             style: const TextStyle(fontSize: 14),
@@ -308,14 +354,17 @@ class _SurveyPageState extends State<SurveyPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              question['help_text'] ?? '',
+              question.helpText ?? '',
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             if (noteText != null) ...[
               const SizedBox(height: 8),
               Text(
                 noteText,
-                style: TextStyle(fontSize: 12, color: Colors.grey[500], fontStyle: FontStyle.italic),
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[500],
+                    fontStyle: FontStyle.italic),
               ),
             ],
             const SizedBox(height: 16),
@@ -365,17 +414,17 @@ class _SurveyPageState extends State<SurveyPage> {
         final feet = _formData['height_feet'] as int?;
         final inches = _formData['height_inches'] as int?;
         final weight = _formData['weight_kg'] as double?;
-        
+
         // Calculate BMI
         double? bmi;
         String? bmiStatus;
-        
+
         if (feet != null && inches != null && weight != null && weight > 0) {
           // height_cm = (feet * 30.48) + (inches * 2.54)
           final heightCm = (feet * 30.48) + (inches * 2.54);
           final heightM = heightCm / 100;
           bmi = weight / (heightM * heightM);
-          
+
           if (bmi < 18.5) {
             bmiStatus = 'Your BMI: ${bmi.toStringAsFixed(1)} (Underweight)';
           } else if (bmi < 25) {
@@ -386,19 +435,19 @@ class _SurveyPageState extends State<SurveyPage> {
             bmiStatus = 'Your BMI: ${bmi.toStringAsFixed(1)} (Obese)';
           }
         }
-        
+
         final isComplete = feet != null && inches != null && weight != null;
-        
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              question['question'],
+              question.question,
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 4),
             Text(
-              question['help_text'] ?? '',
+              question.helpText ?? '',
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
@@ -588,11 +637,22 @@ class _SurveyPageState extends State<SurveyPage> {
                 ),
               ),
             ),
-            // Question content
+            // Question content with voice wrapper
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                child: _buildQuestionInput(currentQuestion),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                child: VoiceQuestionWidget(
+                  questionWidget: _buildQuestionInput(currentQuestion),
+                  questionText: currentQuestion.question,
+                  fieldName: currentQuestion.fieldName,
+                  questionType: currentQuestion.type,
+                  currentIndex: _currentQuestionIndex,
+                  totalQuestions: _questions.length,
+                  enableVoice: _voiceEnabled,
+                  answerOptions: _getAnswerOptions(currentQuestion),
+                  onVoiceAnswerConfirmed: _handleVoiceAnswer,
+                ),
               ),
             ),
             // Navigation buttons
@@ -649,6 +709,26 @@ class _SurveyPageState extends State<SurveyPage> {
         ),
       ),
     );
+  }
+
+  /// Get answer options for voice recognition
+  List<String>? _getAnswerOptions(SurveyQuestion question) {
+    if (question.type == 'yes_no') {
+      return ['Yes', 'No'];
+    }
+    if (question.type == 'select' && question.options != null) {
+      return question.options!
+          .map((opt) => opt['label'] ?? opt['value'])
+          .cast<String>()
+          .toList();
+    }
+    return null;
+  }
+
+  @override
+  void dispose() {
+    VoiceService().stop();
+    super.dispose();
   }
 }
 

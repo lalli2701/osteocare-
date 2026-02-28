@@ -91,14 +91,14 @@ class VoiceService {
 
   /// Build voice script for question
   String buildQuestionVoiceScript(
-    int currentIndex,
-    int totalQuestions,
     String questionText,
-    List<String> options,
-  ) {
+    int currentIndex,
+    int totalQuestions, {
+    List<String>? options,
+  }) {
     final progressText = _getProgressText(currentIndex, totalQuestions);
-    final optionsText = _getOptionsText(options);
-    return "$progressText. $questionText $optionsText";
+    final optionsText = options != null ? _getOptionsText(options) : '';
+    return optionsText.isNotEmpty ? "$progressText. $questionText $optionsText" : "$progressText. $questionText";
   }
 
   String _getProgressText(int current, int total) {
@@ -142,14 +142,14 @@ class VoiceService {
   }
 
   /// Get number prompt for voice input
-  String getNumberPrompt(String fieldName) {
+  String getNumberPrompt() {
     switch (_currentLanguage) {
       case VoiceLanguage.english:
-        return "Please say your $fieldName as a number.";
+        return "Please say the number.";
       case VoiceLanguage.hindi:
-        return "कृपया अपना $fieldName संख्या में बताएं।";
+        return "कृपया संख्या बताएं।";
       case VoiceLanguage.telugu:
-        return "దయచేసి మీ $fieldName సంఖ్యగా చెప్పండి.";
+        return "దయచేసి సంఖ్య చెప్పండి.";
     }
   }
 
