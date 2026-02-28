@@ -65,10 +65,10 @@ class LanguageService {
       );
 
       if (response.statusCode != 200) {
-        print('Failed to update language preference: ${response.body}');
+        // Language update failed
       }
     } catch (e) {
-      print('Error updating language preference: $e');
+      // Error updating language preference
     }
   }
 
@@ -104,7 +104,7 @@ class LanguageService {
         }
       }
     } catch (e) {
-      print('Error loading language from backend: $e');
+      // Error loading language from backend
     }
   }
 

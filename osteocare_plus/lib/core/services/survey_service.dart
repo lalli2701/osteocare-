@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
-import 'package:easy_localization/easy_localization.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SurveyQuestion {
   final int id;
@@ -69,16 +69,20 @@ class SurveyService {
     }
   }
 
-  /// Get language code for current locale
-  String _getLanguageCode() {
-    final locale = EasyLocalization.of(null)?.currentLocale?.languageCode ?? 'en';
-    return locale;
+  /// Get language code from SharedPreferences or default to 'en'
+  Future<String> _getLanguageCode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString('preferred_language') ?? 'en';
+    } catch (e) {
+      return 'en';
+    }
   }
 
   /// Merge master questions with language-specific text
   Future<List<SurveyQuestion>> getQuestions() async {
     final masterQuestions = await _loadMasterQuestions();
-    final languageCode = _getLanguageCode();
+    final languageCode = await _getLanguageCode();
     final languageQuestions = await _loadLanguageQuestions(languageCode);
 
     List<SurveyQuestion> questions = [];
