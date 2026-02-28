@@ -54,6 +54,7 @@ dependencies:
   # Notifications and text-to-speech
   flutter_local_notifications: ^21.0.0-dev.2
   flutter_tts: ^4.0.2
+  speech_to_text: ^6.6.0
   timezone: ^0.11.0
 
   # Localization
