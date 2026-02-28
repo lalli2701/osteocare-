@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:easy_localization/easy_localization.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/auth/auth_service.dart';
 import '../../../core/services/language_service.dart';
@@ -23,11 +24,63 @@ class _ProfilePageState extends State<ProfilePage> {
   String _phoneNumber = 'Loading...';
   String _createdDate = 'Loading...';
   bool _isLoading = true;
+  bool _voiceEnabled = true;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _loadVoicePreference();
+  }
+
+  Future<void> _loadVoicePreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _voiceEnabled = prefs.getBool('voice_enabled') ?? true;
+      });
+    } catch (e) {
+      // Silently fail - voice_enabled defaults to true
+    }
+  }
+
+  Future<void> _toggleVoicePreference(bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('voice_enabled', value);
+      
+      // Optionally sync to backend
+      final token = await _authService.getToken();
+      if (token != null) {
+        await http.put(
+          Uri.parse('http://localhost:5000/api/user/preferences'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'voice_enabled': value}),
+        ).timeout(const Duration(seconds: 10));
+      }
+      
+      setState(() => _voiceEnabled = value);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              value ? 'Voice features enabled' : 'Voice features disabled',
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating preference: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _loadUserData() async {
@@ -134,6 +187,21 @@ class _ProfilePageState extends State<ProfilePage> {
               subtitle: Text(_getCurrentLanguageName()),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: _showLanguageSelector,
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.mic),
+              title: const Text('Voice Features'),
+              subtitle: Text(
+                _voiceEnabled
+                    ? 'Read questions aloud and speak answers'
+                    : 'Voice features disabled',
+              ),
+              trailing: Switch(
+                value: _voiceEnabled,
+                onChanged: _toggleVoicePreference,
+              ),
             ),
           ),
           Card(

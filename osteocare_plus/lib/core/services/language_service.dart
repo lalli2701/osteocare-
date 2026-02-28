@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../auth/auth_service.dart';
+import 'voice_service.dart';
+import 'speech_recognition_service.dart';
 
 enum AppLanguage {
   english('en', 'English', 'english'),
@@ -46,6 +48,20 @@ class LanguageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_languageKey, language.code);
 
+    // Sync voice service with new language
+    try {
+      await VoiceService().switchLanguage(language.code);
+    } catch (e) {
+      // VoiceService may not be available, continue anyway
+    }
+
+    // Sync speech recognition service
+    try {
+      await SpeechRecognitionService().setLanguage(language.code);
+    } catch (e) {
+      // SpeechRecognitionService may not be available, continue anyway
+    }
+
     // Send to backend
     await _updateBackendLanguage(language.backendValue);
   }
@@ -65,10 +81,10 @@ class LanguageService {
       );
 
       if (response.statusCode != 200) {
-        print('Failed to update language preference: ${response.body}');
+        // Language update failed
       }
     } catch (e) {
-      print('Error updating language preference: $e');
+      // Error updating language preference
     }
   }
 
@@ -101,10 +117,24 @@ class LanguageService {
           // Save locally
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(_languageKey, language.code);
+
+          // Sync voice service
+          try {
+            await VoiceService().switchLanguage(language.code);
+          } catch (e) {
+            // VoiceService may not be available
+          }
+
+          // Sync speech recognition service
+          try {
+            await SpeechRecognitionService().setLanguage(language.code);
+          } catch (e) {
+            // SpeechRecognitionService may not be available
+          }
         }
       }
     } catch (e) {
-      print('Error loading language from backend: $e');
+      // Error loading language from backend
     }
   }
 
