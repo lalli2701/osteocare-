@@ -1,0 +1,255 @@
+📱 VOICE SERVICES QUICK REFERENCE
+==================================
+
+🎤 VOICE SERVICE (TTS)
+======================
+
+What: Text-to-Speech engine with dynamic language switching
+
+Initialize:
+  await VoiceService().initialize();
+
+Set Language:
+  await VoiceService().switchLanguage('hi'); // 'en', 'hi', 'te'
+
+Speak Text:
+  await VoiceService().speak("Question 5 of 15...");
+
+Build Question Voice Script:
+  final script = VoiceService().buildQuestionVoiceScript(
+    currentIndex: 5,
+    totalQuestions: 15,
+    questionText: "Has a doctor told you...",
+    options: ["Yes", "No"],
+  );
+  await VoiceService().speak(script);
+
+Get User Prompts (in current language):
+  getConfirmationPrompt("Yes")      // "You said: Yes. Is that correct?"
+  getRetryPrompt()                   // "I could not understand..."
+  getNumberPrompt("age")             // "Please say your age..."
+
+Stop Speaking:
+  await VoiceService().stop();
+
+Check if Speaking:
+  bool speaking = VoiceService().isSpeaking;
+
+Current Language:
+  VoiceLanguage lang = VoiceService().currentLanguage;
+
+Cleanup:
+  await VoiceService().dispose();
+
+
+🎙️ SPEECH RECOGNITION SERVICE (STT)
+====================================
+
+What: Speech-to-Text with multilingual keyword mapping
+
+Initialize:
+  final available = await SpeechRecognitionService().initialize();
+
+Set Language:
+  await SpeechRecognitionService().setLanguage('hi');
+
+Start Listening:
+  await SpeechRecognitionService().startListening(
+    onResult: (transcript) {
+      final result = SpeechRecognitionService().parseYesNoAnswer(transcript);
+      // RecognitionResult.yes | .no | .alternative | .unknown
+    },
+    onError: () {
+      // Error occurred
+    },
+  );
+
+Parse Yes/No Answer:
+  final result = SpeechRecognitionService().parseYesNoAnswer("हाँ");
+  // Returns: RecognitionResult.yes
+
+Extract Number:
+  final age = SpeechRecognitionService().extractNumber("twenty five");
+  // Returns: 25
+
+Get Display Text:
+  final text = SpeechRecognitionService().getDisplayText(
+    transcript,
+    RecognitionResult.yes,
+  );
+  // In Hindi: "हाँ"
+  // In English: "Yes"
+
+Stop Listening:
+  await SpeechRecognitionService().stopListening();
+
+Check Availability:
+  bool available = SpeechRecognitionService().isAvailable;
+  bool listening = SpeechRecognitionService().isListening;
+
+Cleanup:
+  await SpeechRecognitionService().dispose();
+
+
+📊 MULTILINGUAL KEYWORD MAPPING
+================================
+
+English:
+  Yes: yes, yeah, yup, sure, okay, ok, correct, right, affirmative
+  No: no, nope, nah, negative, never, not, false
+
+Hindi:
+  Yes: haan, haa, ham, bilkul, theek, sahi
+  No: nahi, nahin, na, bilkul nahi, kabhi nahi
+
+Telugu:
+  Yes: avunu, aavanu, oka, kosu
+  No: kaadu, kadu, ledu, lenu
+
+
+🔗 LANGUAGE SERVICE INTEGRATION
+================================
+
+When Language Changes:
+  1. LanguageService.changeLanguage(context, language)
+  2. Automatically syncs VoiceService
+  3. Automatically syncs SpeechRecognitionService
+  4. Saves to SharedPreferences
+  5. Sends to backend
+
+Example:
+  await LanguageService.changeLanguage(context, AppLanguage.hindi);
+  // Automatically:
+  // - Sets app locale to 'hi'
+  // - Sets VoiceService to 'hi-IN'
+  // - Sets SpeechRecognitionService to 'hi_IN'
+  // - Saves 'en' to SharedPreferences
+  // - POSTs to backend
+
+
+📋 VOICE ANSWER FLOW (Step-by-Step)
+====================================
+
+1. Question Loads
+   └─ Load translated question from SurveyService
+   └─ Set VoiceService language: 'hi-IN'
+   └─ Set SpeechRecognitionService language: 'hi_IN'
+
+2. Question Display
+   └─ Show question text
+   └─ Show voice toggle button
+   └─ Auto-read question (or user taps voice icon)
+
+3. Build Voice Script
+   script = VoiceService().buildQuestionVoiceScript(...)
+   
+   Example (Hindi):
+   "15 में से 5वाँ प्रश्न। क्या किसी डॉक्टर ने...? कृपया हाँ या नहीं कहें।"
+
+4. Read Question via TTS
+   await VoiceService().speak(script);
+
+5. User Taps Mic Button
+   └─ Stop current TTS
+   └─ Start SpeechRecognitionService
+   └─ Set locale to 'hi_IN'
+
+6. User Speaks Answer
+   └─ "हाँ"
+
+7. Parse Speech
+   transcript = "हाँ"
+   result = SpeechRecognitionService().parseYesNoAnswer(transcript)
+   # Returns: RecognitionResult.yes
+
+8. Get Display Text
+   display = SpeechRecognitionService().getDisplayText(
+     "हाँ",
+     RecognitionResult.yes,
+   )
+   # Returns: "हाँ" (localized)
+
+9. Show Confirmation
+   "आपने कहा: हाँ। क्या यह सही है?"
+   Buttons: [Confirm] [Retry]
+
+10. User Confirms
+    └─ Store answer: {"arthritis": "Yes"}
+    └─ Move to next question
+
+OR User Retries
+    └─ Speak retry prompt: "मुझे समझ नहीं आया। कृपया पुनः प्रयास करें।"
+    └─ Restart listening
+
+
+⚠️ CRITICAL NOTES
+=================
+
+✅ DO:
+   - Always check voice availability before using
+   - Show confirmation dialog before accepting voice answer
+   - Stop TTS before starting speech recognition
+   - Handle speech recognition failure gracefully
+   - Match TTS language with speech recognition locale
+   - Send only structured answers ({"arthritis": "Yes"})
+
+❌ DON'T:
+   - Auto-submit after speech recognition
+   - Send raw transcript to backend
+   - Mix languages in same question
+   - Switch locale without stopping TTS/STT first
+   - Use voice for complex data (height, weight)
+   - Translate survey questions on backend
+
+
+🔌 BACKEND INTEGRATION
+======================
+
+Voice Preference Storage:
+
+Database:
+  users table:
+    - voice_enabled BOOLEAN DEFAULT 1
+    - preferred_language VARCHAR DEFAULT 'english'
+
+API Endpoints:
+
+1. Get Voice Preference (in /api/dashboard response):
+   {
+     "user": {...},
+     "voice_enabled": true,
+     "preferred_language": "hindi"
+   }
+
+2. Update Voice Preference:
+   POST /api/user/preferences
+   {"voice_enabled": false}
+
+3. Update Language Preference:
+   POST /api/user/preferences
+   {"preferred_language": "hindi"}
+
+Backend Rules:
+  - NEVER translate on backend
+  - NEVER process speech transcripts
+  - ONLY store language preference
+  - ONLY return structured data
+  - Model receives language-neutral data
+
+
+🎯 INTEGRATION CHECKLIST
+========================
+
+Before survey page uses voice:
+  [ ] VoiceService implemented (✓)
+  [ ] SpeechRecognitionService implemented (✓)
+  [ ] LanguageService syncs with both services (✓)
+  [ ] Survey questions load in user's language (✓)
+  [ ] Voice button added to each question
+  [ ] Confirmation dialog shown for voice answers
+  [ ] Fallback to text input if voice unavailable
+  [ ] Cleanup on page exit
+  [ ] Test with multiple languages
+  [ ] Test microphone permission handling
+  [ ] Test network errors gracefully
+

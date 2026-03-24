@@ -1,0 +1,125 @@
+{
+  "age": {
+    "question": "What is your age?",
+    "help_text": "Enter your age in years (must be 18 or older)"
+  },
+  "gender": {
+    "question": "What is your gender?",
+    "help_text": "Select your gender",
+    "options": {
+      "Male": "Male",
+      "Female": "Female"
+    }
+  },
+  "height_weight": {
+    "question": "What is your height and weight?",
+    "help_text": "Enter your height in feet and inches and weight in kilograms.",
+    "sub_fields": {
+      "height_feet": "Height (Feet)",
+      "height_inches": "Height (Inches)",
+      "weight_kg": "Weight (kg)"
+    }
+  },
+  "calcium_frequency": {
+    "question": "How often do you consume milk, curd, paneer, or calcium-rich foods?",
+    "help_text": "Calcium intake is crucial for bone health",
+    "options": {
+      "Rarely": "Rarely",
+      "Sometimes": "Sometimes",
+      "Daily": "Daily"
+    }
+  },
+  "memory_issue": {
+    "question": "Do you have serious difficulty remembering or concentrating?",
+    "help_text": "Cognitive function is linked to overall health",
+    "options": {
+      "Yes": "Yes",
+      "No": "No"
+    }
+  },
+  "mobility_climb": {
+    "question": "Do you have difficulty walking or climbing stairs?",
+    "help_text": "Mobility issues may indicate muscle and bone weakness",
+    "options": {
+      "Yes": "Yes",
+      "No": "No"
+    }
+  },
+  "stand_long": {
+    "question": "Do you have difficulty standing for long periods?",
+    "help_text": "Standing endurance relates to bone and muscle strength",
+    "options": {
+      "Yes": "Yes",
+      "No": "No"
+    }
+  },
+  "activity_limited": {
+    "question": "Are you limited in daily physical activities due to health problems?",
+    "help_text": "Physical activity limitations can affect bone density",
+    "options": {
+      "Yes": "Yes",
+      "No": "No"
+    }
+  },
+  "arthritis": {
+    "question": "Has a doctor ever told you that you have arthritis (joint disease)?",
+    "help_text": "Arthritis is a long-term joint condition that causes pain, stiffness, or swelling, especially in knees, hips, hands, or spine.",
+    "note_text": "This refers only to a diagnosis given by a doctor.",
+    "info_text": "What is arthritis?\\n\\n• A condition affecting joints\\n• Causes long-term pain or stiffness\\n• Common in older adults\\n• Includes osteoarthritis and rheumatoid arthritis\\n• This question refers to a confirmed medical diagnosis",
+    "options": {
+      "Yes": "Yes",
+      "No": "No"
+    }
+  },
+  "thyroid": {
+    "question": "Have you been diagnosed with thyroid disease?",
+    "help_text": "Thyroid function affects bone metabolism",
+    "options": {
+      "Yes": "Yes",
+      "No": "No"
+    }
+  },
+  "lung_disease": {
+    "question": "Have you been diagnosed with chronic lung disease?",
+    "help_text": "Lung disease can be associated with bone health issues",
+    "options": {
+      "Yes": "Yes",
+      "No": "No"
+    }
+  },
+  "heart_failure": {
+    "question": "Have you been diagnosed with congestive heart failure?",
+    "help_text": "Heart conditions may affect overall bone health",
+    "options": {
+      "Yes": "Yes",
+      "No": "No"
+    }
+  },
+  "smoking": {
+    "question": "Have you smoked regularly?",
+    "help_text": "Smoking accelerates bone loss",
+    "options": {
+      "Yes": "Yes",
+      "No": "No"
+    }
+  },
+  "alcohol": {
+    "question": "How often do you drink alcohol?",
+    "help_text": "Excess alcohol consumption affects bone strength",
+    "options": {
+      "None": "None",
+      "Occasionally": "Occasionally",
+      "Frequently": "Frequently"
+    }
+  },
+  "general_health": {
+    "question": "How would you rate your overall health?",
+    "help_text": "Your overall health status influences bone health",
+    "options": {
+      "Excellent": "Excellent",
+      "Good": "Good",
+      "Fair": "Fair",
+      "Poor": "Poor"
+    }
+  }
+}
