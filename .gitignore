@@ -19,3 +19,12 @@ build/
 
 # Editor
 .vscode/
+.idea/
+
+# Monitoring and evaluation outputs
+backend/logs/
+backend/evaluation/chatbot_eval_report.json
+backend/evaluation/chat_monitor_summary.json
+backend/evaluation/knowledge_update_candidates.json
+backend/evaluation/chatbot_eval_dataset_candidates.json
+backend/evaluation/chatbot_eval_gold_from_logs_candidates.json
