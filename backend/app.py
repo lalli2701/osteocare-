@@ -1,4 +1,6 @@
 import os
+import logging
+import time
 from dotenv import load_dotenv
 import json
 import joblib
@@ -13,6 +15,11 @@ from flask_limiter.util import get_remote_address
 
 # Import authentication module
 from auth import init_auth_db, signup_user, login_user, token_required, get_user_by_id
+
+try:
+    from chatbot import chatbot_response
+except Exception:
+    chatbot_response = None
 
 # Load environment variables from backend/.env if present
 load_dotenv()
@@ -40,6 +47,22 @@ API_KEY = os.environ.get("API_KEY", "dev-key")
 
 app = Flask(__name__)
 CORS(app)
+
+chat_monitor_logger = logging.getLogger("chat_monitor")
+if not chat_monitor_logger.handlers:
+    logs_dir = os.path.join(BASE_DIR, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    chat_monitor_logger.addHandler(handler)
+
+    file_handler = logging.FileHandler(os.path.join(logs_dir, "chat_monitor.log"), encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    chat_monitor_logger.addHandler(file_handler)
+chat_monitor_logger.setLevel(logging.INFO)
+
+
 def _rate_limit_key():
     user_id = request.headers.get("X-User-Id", "").strip()
     if user_id:
@@ -54,6 +77,43 @@ init_auth_db(DB_PATH)
 
 _model = None
 _feature_order: list[str] | None = None
+
+
+def _extract_chat_question(payload: dict) -> str:
+    message = str(payload.get("message", "")).strip()
+    if message:
+        return message
+
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        for item in reversed(messages):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("role", "")).lower() != "user":
+                continue
+            content = str(item.get("content", "")).strip()
+            if content:
+                return content
+
+    return ""
+
+
+def _extract_chat_history(payload: dict, max_items: int = 6) -> list[dict[str, str]]:
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return []
+
+    normalized: list[dict[str, str]] = []
+    for item in messages:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role", "")).strip().lower()
+        content = str(item.get("content", "")).strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        normalized.append({"role": role, "content": content})
+
+    return normalized[-max_items:]
 
 
 # ------------------------------------------
@@ -1027,6 +1087,91 @@ def _validate_form_input(form: dict) -> tuple[bool, str]:
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/chat", methods=["POST"])
+@limiter.limit("20 per minute", key_func=_rate_limit_key)
+def chat():
+    started_at = time.perf_counter()
+    data = request.get_json(silent=True) or {}
+    user_message = _extract_chat_question(data)
+    chat_history = _extract_chat_history(data)
+
+    if not user_message:
+        return jsonify({"reply": "No message provided"}), 400
+
+    if chatbot_response is None:
+        return jsonify({
+            "reply": "Chat service is unavailable. Please check model dependencies and restart backend."
+        }), 503
+
+    try:
+        result = chatbot_response(user_message, history=chat_history, return_meta=True)
+        if isinstance(result, dict):
+            latency_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
+            response_payload = {
+                "reply": result.get("answer", ""),
+                "confidence": result.get("confidence", "low"),
+                "route": result.get("route", "unknown"),
+                "best_distance": result.get("best_distance"),
+                "gap": result.get("gap"),
+                "context_count": result.get("context_count", 0),
+                "timing_ms": result.get("timing_ms", {}),
+                "ranking_meta": result.get("ranking_meta", {}),
+                "latency_ms": latency_ms,
+            }
+
+            route = str(response_payload.get("route", "unknown"))
+            monitor_entry = {
+                "query": user_message,
+                "route": route,
+                "confidence": response_payload.get("confidence"),
+                "best_distance": response_payload.get("best_distance"),
+                "gap": response_payload.get("gap"),
+                "context_count": response_payload.get("context_count"),
+                "timing_ms": response_payload.get("timing_ms"),
+                "ranking_meta": response_payload.get("ranking_meta"),
+                "latency_ms": response_payload.get("latency_ms"),
+                "fallback_triggered": route.startswith("fallback") or "fallback" in route,
+            }
+            chat_monitor_logger.info(json.dumps(monitor_entry, ensure_ascii=True))
+
+            return jsonify(response_payload)
+
+        latency_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
+        legacy_payload = {
+            "reply": str(result),
+            "confidence": "low",
+            "route": "legacy",
+            "latency_ms": latency_ms,
+        }
+        chat_monitor_logger.info(json.dumps({
+            "query": user_message,
+            "route": "legacy",
+            "confidence": "low",
+            "best_distance": None,
+            "gap": None,
+            "context_count": 0,
+            "latency_ms": latency_ms,
+            "fallback_triggered": False,
+        }, ensure_ascii=True))
+        return jsonify(legacy_payload)
+    except Exception as e:
+        return jsonify({"reply": f"Chat service error: {str(e)}"}), 500
+
+
+@app.route("/fallback-rate", methods=["GET"])
+def fallback_rate():
+    """Get current fallback rate statistics (production observability)."""
+    try:
+        from chatbot import get_fallback_rate
+        if get_fallback_rate is None:
+            return jsonify({"status": "unavailable"}), 503
+        
+        stats = get_fallback_rate()
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/api/public/app-info", methods=["GET"])

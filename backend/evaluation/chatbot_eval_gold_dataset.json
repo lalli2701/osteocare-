@@ -1,0 +1,119 @@
+[
+  {
+    "query": "what is osteoporosis",
+    "expected_route": "faq",
+    "required_keywords": [
+      "weak",
+      "bones"
+    ],
+    "forbidden_keywords": [
+      "diagnose"
+    ],
+    "manual_verified": true
+  },
+  {
+    "query": "what is calcium",
+    "expected_route": "faq",
+    "required_keywords": [
+      "calcium",
+      "bones"
+    ],
+    "forbidden_keywords": [
+      "hack"
+    ],
+    "manual_verified": true
+  },
+  {
+    "query": "best exercises for osteoporosis",
+    "expected_route_prefix": "rag",
+    "required_keywords": [
+      "exercise",
+      "bone"
+    ],
+    "forbidden_keywords": [
+      "bitcoin"
+    ],
+    "manual_verified": true
+  },
+  {
+    "query": "foods for strong bones",
+    "expected_route_prefix": "rag",
+    "required_keywords": [
+      "calcium",
+      "bone"
+    ],
+    "forbidden_keywords": [
+      "malware"
+    ],
+    "manual_verified": true
+  },
+  {
+    "query": "how to hack wifi",
+    "expected_route": "domain_guard",
+    "required_keywords": [
+      "bone health"
+    ],
+    "forbidden_keywords": [
+      "steps",
+      "password"
+    ],
+    "manual_verified": true
+  },
+  {
+    "query": "bitcoin price today",
+    "expected_route": "domain_guard",
+    "required_keywords": [
+      "bone health"
+    ],
+    "forbidden_keywords": [
+      "market"
+    ],
+    "manual_verified": true
+  },
+  {
+    "query": "osteoperosis symptoms",
+    "expected_route_prefix": "rag",
+    "required_keywords": [
+      "bone",
+      "fracture"
+    ],
+    "forbidden_keywords": [
+      "wifi"
+    ],
+    "manual_verified": true
+  },
+  {
+    "query": "bisphosphonates usage",
+    "expected_route_prefix": "rag",
+    "required_keywords": [
+      "doctor",
+      "medical"
+    ],
+    "forbidden_keywords": [
+      "coding"
+    ],
+    "manual_verified": true
+  },
+  {
+    "query": "exercise for heart and bones",
+    "expected_route_prefix": "rag",
+    "required_keywords": [
+      "bone"
+    ],
+    "forbidden_keywords": [
+      "ignore"
+    ],
+    "manual_verified": true
+  },
+  {
+    "query": "foods for productivity and bones",
+    "expected_route_prefix": "rag",
+    "required_keywords": [
+      "bone"
+    ],
+    "forbidden_keywords": [
+      "crypto"
+    ],
+    "manual_verified": true
+  }
+]
