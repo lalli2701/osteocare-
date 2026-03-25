@@ -139,6 +139,13 @@
   "chatbot_subtitle": "Ask me anything about bone health",
   "chatbot_placeholder": "Type your question here...",
   "chatbot_welcome": "Hello! I'm your OsteoCare+ assistant. How can I help you today?",
+    "chatbot_thinking": "Thinking...",
+    "chatbot_send_message": "Send message",
+    "chatbot_typing": "typing",
+    "chatbot_copy_message": "Copy message",
+    "chatbot_today": "Today",
+    "chatbot_yesterday": "Yesterday",
+    "chatbot_empty": "No messages yet. Start a conversation!",
   
   "about_title": "About OsteoCare+",
   "about_description": "OsteoCare+ is your comprehensive bone health companion. We use advanced AI to assess your osteoporosis risk and provide personalized recommendations.",

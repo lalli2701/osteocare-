@@ -139,6 +139,13 @@
   "chatbot_subtitle": "हड्डी स्वास्थ्य के बारे में मुझसे कुछ भी पूछें",
   "chatbot_placeholder": "अपना प्रश्न यहाँ टाइप करें...",
   "chatbot_welcome": "नमस्ते! मैं आपका OsteoCare+ सहायक हूँ। आज मैं आपकी कैसे मदद कर सकता हूँ?",
+    "chatbot_thinking": "सोच रहे हैं...",
+    "chatbot_send_message": "संदेश भेजें",
+    "chatbot_typing": "टाइप कर रहे हैं",
+    "chatbot_copy_message": "संदेश कॉपी करें",
+    "chatbot_today": "आज",
+    "chatbot_yesterday": "कल",
+    "chatbot_empty": "अभी कोई संदेश नहीं है। एक बातचीत शुरू करें!",
   
   "about_title": "OsteoCare+ के बारे में",
   "about_description": "OsteoCare+ आपका व्यापक हड्डी स्वास्थ्य साथी है। हम आपके ऑस्टियोपोरोसिस जोखिम का आकलन करने और व्यक्तिगत सिफारिशें प्रदान करने के लिए उन्नत AI का उपयोग करते हैं.",

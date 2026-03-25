@@ -139,6 +139,13 @@
   "chatbot_subtitle": "ఎముక ఆరోగ్యం గురించి నన్ను ఏదైనా అడగండి",
   "chatbot_placeholder": "మీ ప్రశ్నను ఇక్కడ టైప్ చేయండి...",
   "chatbot_welcome": "హలో! నేను మీ OsteoCare+ సహాయకుడిని. ఈరోజు నేను మీకు ఎలా సహాయం చేయగలను?",
+    "chatbot_thinking": "ఆలోచిస్తున్నాను...",
+    "chatbot_send_message": "సంदేశ పంపండి",
+    "chatbot_typing": "టైప్ చేస్తున్నాను",
+    "chatbot_copy_message": "సందేశాన్ని కాపీ చేయండి",
+    "chatbot_today": "ఈ రోజు",
+    "chatbot_yesterday": "నిన్న",
+    "chatbot_empty": "ఇంకా సందేశాలు లేవు. సంభాషణ ప్రారంభించండి!",
   
   "about_title": "OsteoCare+ గురించి",
   "about_description": "OsteoCare+ మీ సమగ్ర ఎముక ఆరోగ్య సహచరుడు. మీ ఆస్టియోపోరోసిస్ ప్రమాదాన్ని అంచనా వేయడానికి మరియు వ్యక్తిగత సిఫార్సులను అందించడానికి మేము అధునాతన AIని ఉపయోగిస్తాము.",
