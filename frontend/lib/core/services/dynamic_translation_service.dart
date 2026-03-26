@@ -91,7 +91,7 @@ class DynamicTranslationService {
             MedicalTermsService.extractProtectedTerms(normalizedText, targetLang);
         for (int i = 0; i < terms.length; i++) {
           final term = terms[i];
-          final placeholder = '<<<MEDICAL_${i}>>>';
+          final placeholder = '<<<MEDICAL_$i>>>';
           textForTranslation = textForTranslation.replaceAll(
             RegExp(term, caseSensitive: false),
             placeholder,
@@ -214,7 +214,7 @@ class DynamicTranslationService {
           final terms = MedicalTermsService.extractProtectedTerms(text, targetLang);
           for (int i = 0; i < terms.length; i++) {
             final term = terms[i];
-            final placeholder = '<<<MEDICAL_${i}>>>';
+            final placeholder = '<<<MEDICAL_$i>>>';
             textToSend = textToSend.replaceAll(
               RegExp(term, caseSensitive: false),
               placeholder,

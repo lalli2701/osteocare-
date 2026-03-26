@@ -38,7 +38,7 @@ enum AppLanguage {
 class LanguageService {
   static const String _languageKey = 'preferred_language';
   static const String _versionKey = 'translation_cache_version';
-  static const String _backendUrl = 'http://localhost:5000';
+  static const String _backendUrl = 'http://172.201.252.146:5000';
 
   static Future<void> changeLanguage(
     BuildContext context,

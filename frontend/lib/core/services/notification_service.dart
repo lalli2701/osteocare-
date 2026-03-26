@@ -12,6 +12,7 @@ class NotificationService {
 
   bool _initialized = false;
   static const int reassessmentReminderId = 1001;
+  static const int doctorConsultReminderId = 1002;
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -73,7 +74,7 @@ class NotificationService {
           message ?? 'Take a few minutes to move and protect your bones today.',
       scheduledDate: scheduled,
       notificationDetails: details,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.time,
     );
   }
@@ -127,7 +128,7 @@ class NotificationService {
       body: body,
       scheduledDate: scheduled,
       notificationDetails: details,
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
     );
   }
 
@@ -136,6 +137,50 @@ class NotificationService {
       await initialize();
     }
     await _plugin.cancel(id: reassessmentReminderId);
+  }
+
+  Future<void> scheduleDoctorConsultReminder({
+    required DateTime when,
+    String title = 'Doctor Consultation Reminder',
+    String body = 'Your risk is high. Please consult an orthopedic doctor soon.',
+  }) async {
+    if (!_initialized) {
+      await initialize();
+    }
+
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'bone_health_doctor_consult',
+        'Doctor consultation reminders',
+        channelDescription:
+            'Reminders to consult an orthopedic doctor for high osteoporosis risk.',
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+    );
+
+    final scheduled = tz.TZDateTime.from(when, tz.local);
+    final now = tz.TZDateTime.now(tz.local);
+
+    if (!scheduled.isAfter(now)) {
+      return;
+    }
+
+    await _plugin.zonedSchedule(
+      id: doctorConsultReminderId,
+      title: title,
+      body: body,
+      scheduledDate: scheduled,
+      notificationDetails: details,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+    );
+  }
+
+  Future<void> cancelDoctorConsultReminder() async {
+    if (!_initialized) {
+      await initialize();
+    }
+    await _plugin.cancel(id: doctorConsultReminderId);
   }
 }
 

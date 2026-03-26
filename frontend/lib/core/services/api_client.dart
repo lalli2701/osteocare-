@@ -1,14 +1,12 @@
 import 'package:dio/dio.dart';
 
-import 'dynamic_translation_service.dart';
-
 class ApiClient {
   ApiClient({Dio? dio}) : _dio = dio ?? Dio();
 
   final Dio _dio;
 
-  /// Local backend URL for development.
-  static const String baseUrl = 'http://127.0.0.1:5000';
+  /// Backend URL reachable from a physical Android device over USB/Wi-Fi.
+  static const String baseUrl = 'http://172.201.252.146:5000';
 
   Future<String> sendChatMessage({
     required String userId,
@@ -39,7 +37,7 @@ class ApiClient {
     }
 
     final reply = data['reply'] as String;
-    return DynamicTranslationService.instance.translate(reply);
+    return reply;
   }
 }
 

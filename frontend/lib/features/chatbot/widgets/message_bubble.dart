@@ -69,7 +69,7 @@ class MessageBubble extends StatelessWidget {
             borderRadius: _borderRadius,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black.withValues(alpha: 0.1),
                 blurRadius: 4,
                 offset: const Offset(0, 2),
               ),
@@ -90,7 +90,7 @@ class MessageBubble extends StatelessWidget {
               Text(
                 _formatTime(message.timestamp),
                 style: TextStyle(
-                  color: _textColor.withOpacity(0.7),
+                  color: _textColor.withValues(alpha: 0.7),
                   fontSize: 12,
                 ),
               ),

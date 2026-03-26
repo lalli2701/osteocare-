@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/auth/auth_service.dart';
 import '../../../core/services/language_service.dart';
+import 'dashboard_wrapper.dart';
 import '../../onboarding/presentation/landing_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -70,7 +71,7 @@ class _ProfilePageState extends State<ProfilePage> {
       final token = await _authService.getToken();
       if (token != null) {
         await http.put(
-          Uri.parse('http://localhost:5000/api/user/preferences'),
+          Uri.parse('http://172.201.252.146:5000/api/user/preferences'),
           headers: {
             'Authorization': 'Bearer $token',
             'Content-Type': 'application/json',
@@ -111,7 +112,7 @@ class _ProfilePageState extends State<ProfilePage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:5000/api/user/profile'),
+        Uri.parse('http://172.201.252.146:5000/api/user/profile'),
         headers: {
           'Authorization': 'Bearer $token',
         },
@@ -156,6 +157,16 @@ class _ProfilePageState extends State<ProfilePage> {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go(DashboardWrapper.routePath);
+              }
+            },
+          ),
           title: Text('profile'.tr()),
         ),
         body: const Center(child: CircularProgressIndicator()),
@@ -164,6 +175,16 @@ class _ProfilePageState extends State<ProfilePage> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go(DashboardWrapper.routePath);
+            }
+          },
+        ),
         title: Text('profile'.tr()),
       ),
       body: ListView(
@@ -302,7 +323,9 @@ class _ProfilePageState extends State<ProfilePage> {
             return RadioListTile<AppLanguage>(
               title: Text(language.displayName),
               value: language,
+              // ignore: deprecated_member_use
               groupValue: currentLanguage,
+              // ignore: deprecated_member_use
               onChanged: (AppLanguage? value) async {
                 if (value != null && mounted) {
                   Navigator.pop(dialogContext);

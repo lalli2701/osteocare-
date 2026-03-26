@@ -28,7 +28,7 @@ class AssistantFab extends StatelessWidget {
         shadowColor: Colors.black26,
         borderRadius: BorderRadius.circular(999),
         child: InkWell(
-          onTap: () => context.go(ChatbotPage.routePath),
+          onTap: () => context.push(ChatbotPage.routePath),
           borderRadius: BorderRadius.circular(999),
           child: Ink(
             decoration: BoxDecoration(

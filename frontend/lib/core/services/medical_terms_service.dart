@@ -64,7 +64,7 @@ class MedicalTermsService {
     final Map<String, String> placeholders = {};
     for (int i = 0; i < terms.length; i++) {
       final term = terms[i];
-      final placeholder = '<<<MEDICAL_TERM_${i}>>>';
+      final placeholder = '<<<MEDICAL_TERM_$i>>>';
       if (result.toLowerCase().contains(term.toLowerCase())) {
         // Case-insensitive replacement
         result = result.replaceAll(

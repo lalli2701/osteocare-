@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/user_session.dart';
 import '../../../core/services/notification_service.dart';
@@ -8,6 +9,7 @@ import '../../../core/services/reminder_service.dart';
 import '../../../core/services/reminder_sync_service.dart';
 import '../../../core/services/tts_service.dart';
 import '../../chatbot/presentation/assistant_fab.dart';
+import 'dashboard_wrapper.dart';
 
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key, this.riskLevel, this.age});
@@ -254,6 +256,16 @@ class _TasksPageState extends State<TasksPage> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go(DashboardWrapper.routePath);
+            }
+          },
+        ),
         title: Text('tasks_history_title'.tr()),
       ),
       floatingActionButton: const AssistantFab(),
@@ -340,7 +352,7 @@ class _TasksPageState extends State<TasksPage> {
                               contentPadding: EdgeInsets.zero,
                               title: Text(label),
                               subtitle: Text(
-                                'tasks_age_weight'.tr(args: ['${age ?? '-'}', '${weight ?? '-'}']) + '\n$dateText',
+                                "${'tasks_age_weight'.tr(args: ['${age ?? '-'}', '${weight ?? '-'}'])}\n$dateText",
                               ),
                             );
                           }).toList(),

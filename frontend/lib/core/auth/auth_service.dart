@@ -9,8 +9,8 @@ class AuthService {
 
   static final AuthService instance = AuthService._internal();
 
-  // Backend API base URL - update this with your actual backend URL
-  static const String baseUrl = 'http://localhost:5000';
+  // Backend API base URL reachable by physical devices.
+  static const String baseUrl = 'http://172.201.252.146:5000';
   
   final _storage = const FlutterSecureStorage();
   static const _tokenKey = 'auth_token';

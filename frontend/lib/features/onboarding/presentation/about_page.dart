@@ -14,6 +14,16 @@ class AboutPage extends StatelessWidget {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go(DashboardPage.routePath);
+            }
+          },
+        ),
         title: const Text('About OsteoCare+'),
       ),
       floatingActionButton: const AssistantFab(),

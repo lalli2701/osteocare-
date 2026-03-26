@@ -7,10 +7,12 @@ import 'package:easy_localization/easy_localization.dart';
 
 import '../../../core/auth/auth_service.dart';
 import '../../../core/services/notification_service.dart';
-import '../../../core/services/language_service.dart';
 import '../../../core/services/survey_sync_service.dart';
 import '../../../core/services/dynamic_translation_service.dart';
 import '../../onboarding/presentation/landing_page.dart';
+import '../../survey/presentation/prescriptions_page.dart';
+import '../../survey/presentation/survey_page.dart';
+import 'tasks_page.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -75,7 +77,7 @@ class _DashboardPageState extends State<DashboardPage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://localhost:5000/api/user/dashboard'),
+        Uri.parse('http://172.201.252.146:5000/api/user/dashboard'),
         headers: {
           'Authorization': 'Bearer $token',
         },
@@ -85,15 +87,9 @@ class _DashboardPageState extends State<DashboardPage> {
         final data = jsonDecode(response.body);
         final rawRecommendations =
             List<String>.from(data['recommendations_preview'] ?? []);
-        
-        // Load and set language preference from backend
-        final preferredLanguage = data['preferred_language'] as String?;
-        String activeLangCode = context.locale.languageCode;
-        if (preferredLanguage != null && mounted) {
-          final language = AppLanguage.fromBackendValue(preferredLanguage);
-          activeLangCode = language.code;
-          await context.setLocale(Locale(language.code));
-        }
+
+        // Keep current app language stable until the user changes it manually.
+        final activeLangCode = context.locale.languageCode;
 
         final translatedRecommendations =
             await DynamicTranslationService.instance.translateMany(
@@ -213,7 +209,7 @@ class _DashboardPageState extends State<DashboardPage> {
       if (token == null) return;
 
       final response = await http.post(
-        Uri.parse('http://localhost:5000/api/user/reminders'),
+        Uri.parse('http://172.201.252.146:5000/api/user/reminders'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -292,6 +288,16 @@ class _DashboardPageState extends State<DashboardPage> {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go(LandingPage.routePath);
+              }
+            },
+          ),
           title: Text('dashboard'.tr()),
           actions: [
             IconButton(
@@ -306,6 +312,16 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go(LandingPage.routePath);
+            }
+          },
+        ),
         title: Text('dashboard'.tr()),
         actions: [
           IconButton(
@@ -375,10 +391,10 @@ class _DashboardPageState extends State<DashboardPage> {
               children: [
                 Expanded(
                   child: _quickActionCard(
-                    icon: Icons.assignment,
-                    title: 'assessment'.tr(),
-                    subtitle: _riskLevel == null ? 'dashboard_start'.tr() : 'dashboard_retake'.tr(),
-                    onTap: () => context.push('/survey'),
+                    icon: Icons.folder_shared_outlined,
+                    title: 'Prescriptions',
+                    subtitle: 'Reports',
+                    onTap: () => context.push(PrescriptionsPage.routePath),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -388,7 +404,12 @@ class _DashboardPageState extends State<DashboardPage> {
                     title: 'recommendations'.tr(),
                     subtitle: 'dashboard_view_all'.tr(),
                     onTap: () {
-                      // Navigate to Tasks tab within wrapper
+                      context.push(
+                        TasksPage.routePath,
+                        extra: {
+                          'risk_level': _riskLevel,
+                        },
+                      );
                     },
                   ),
                 ),
@@ -437,7 +458,12 @@ class _DashboardPageState extends State<DashboardPage> {
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: () {
-                    // Navigate to Tasks tab
+                    context.push(
+                      TasksPage.routePath,
+                      extra: {
+                        'risk_level': _riskLevel,
+                      },
+                    );
                   },
                   child: Text('dashboard_view_all_tasks'.tr()),
                 ),
@@ -570,7 +596,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: () => context.push('/survey'),
+              onPressed: () => context.push(SurveyPage.routePath),
               child: Text('take_assessment'.tr()),
             ),
           ],
@@ -657,7 +683,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
                 const SizedBox(height: 12),
                 FilledButton.tonal(
-                  onPressed: () => context.push('/survey'),
+                  onPressed: () => context.push(SurveyPage.routePath),
                   child: Text('retake_assessment'.tr()),
                 ),
               ],

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import 'translation_cache_service.dart';
 
 /// Initializes translation system and manages background cleanup tasks
@@ -51,7 +53,7 @@ class TranslationSystemInitializer {
 
   static void _logCleanupResults(int deletedCount, Map<String, int> stats) {
     // TODO: Replace with your logging service
-    print(
+    debugPrint(
       '[TranslationCache] Cleanup: deleted=$deletedCount, '
       'total=${stats['total']}, expired=${stats['expired']}, unused=${stats['unused']}',
     );
@@ -59,7 +61,7 @@ class TranslationSystemInitializer {
 
   static void _logCleanupError(Object error) {
     // TODO: Replace with your error logging service
-    print('[TranslationCache] Cleanup error: $error');
+    debugPrint('[TranslationCache] Cleanup error: $error');
   }
 
   /// Get current cache statistics

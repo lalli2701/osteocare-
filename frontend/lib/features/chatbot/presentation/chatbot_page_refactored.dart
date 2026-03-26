@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/user_session.dart';
 import '../../../core/services/api_client.dart';
@@ -23,13 +24,7 @@ class ChatbotPageRefactored extends StatefulWidget {
 class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
   late final ScrollController _scrollController;
   final ApiClient _apiClient = ApiClient();
-  final List<Message> _messages = <Message>[
-    Message(
-      text: 'Hi, I am the OsteoCare+ assistant. I can explain osteoporosis, '
-          'how to prevent it, and what precautions to take. I do not replace a doctor.',
-      isUser: false,
-    ),
-  ];
+  final List<Message> _messages = <Message>[];
 
   bool _isSending = false;
   bool _voiceEnabled = true;
@@ -38,6 +33,19 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
   void initState() {
     super.initState();
     _scrollController = ScrollController();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_messages.isEmpty) {
+      _messages.add(
+        Message(
+          text: context.tr('chatbot_welcome'),
+          isUser: false,
+        ),
+      );
+    }
   }
 
   @override
@@ -71,6 +79,7 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
     _scrollToBottom();
 
     String reply;
+    final selectedLangCode = context.locale.languageCode.toLowerCase();
     try {
       final userId = UserSession.instance.userId ??
           UserSession.instance.phone ??
@@ -90,10 +99,17 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
           'disclaimer': 'Educational only, not a medical diagnosis or treatment.',
         },
       );
+      reply = await DynamicTranslationService.instance.translate(
+        reply,
+        langCode: selectedLangCode,
+      );
     } catch (e) {
       // Fallback to on-device reply if backend is unavailable
       reply = _buildBotReply(text);
-      reply = await DynamicTranslationService.instance.translate(reply);
+      reply = await DynamicTranslationService.instance.translate(
+        reply,
+        langCode: selectedLangCode,
+      );
     }
 
     if (!mounted) return;
@@ -106,7 +122,10 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
 
     // Speak the reply if voice is enabled
     if (_voiceEnabled) {
-      await TtsService.instance.speakTip(reply);
+      await TtsService.instance.speakTip(
+        reply,
+        langCode: selectedLangCode,
+      );
     }
   }
 
@@ -200,12 +219,22 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF2F80ED),
         elevation: 4,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/dashboard');
+            }
+          },
+        ),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Icon(
@@ -232,7 +261,7 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
                     context.tr('chatbot_subtitle'),
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                     ),
                   ),
                 ],
@@ -242,7 +271,7 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
         ),
         actions: [
           Tooltip(
-            message: _voiceEnabled ? 'Voice enabled' : 'Voice disabled',
+            message: _voiceEnabled ? context.tr('voice_enabled') : context.tr('voice_disabled'),
             child: IconButton(
               icon: Icon(
                 _voiceEnabled ? Icons.volume_up : Icons.volume_off,
@@ -271,7 +300,7 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'This is educational information only and does not replace professional medical advice.',
+                    context.tr('chatbot_disclaimer'),
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.amber[900],

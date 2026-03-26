@@ -23,6 +23,7 @@ class TranslationCacheService {
       path,
       version: _dbVersion,
       onCreate: (db, version) async {
+        final now = DateTime.now().millisecondsSinceEpoch;
         await db.execute('''
           CREATE TABLE $_tableName(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,6 +33,7 @@ class TranslationCacheService {
             original_text TEXT NOT NULL,
             translated_text TEXT NOT NULL,
             created_at INTEGER NOT NULL,
+            last_accessed INTEGER NOT NULL DEFAULT $now,
             expires_at INTEGER,
             UNIQUE(lang_code, version, source_hash)
           )
@@ -42,7 +44,7 @@ class TranslationCacheService {
         await db.execute(
           'CREATE INDEX idx_expires ON $_tableName(expires_at)',
         );
-      await db.execute(
+        await db.execute(
           'CREATE INDEX idx_last_accessed ON $_tableName(last_accessed)',
         );
       },
@@ -55,6 +57,22 @@ class TranslationCacheService {
             'CREATE INDEX idx_last_accessed ON $_tableName(last_accessed)',
           );
         }
+      },
+      onOpen: (db) async {
+        final columns = await db.rawQuery('PRAGMA table_info($_tableName)');
+        final hasLastAccessed = columns.any(
+          (col) => col['name']?.toString() == 'last_accessed',
+        );
+
+        if (!hasLastAccessed) {
+          await db.execute(
+            'ALTER TABLE $_tableName ADD COLUMN last_accessed INTEGER DEFAULT ${DateTime.now().millisecondsSinceEpoch}',
+          );
+        }
+
+        await db.execute(
+          'CREATE INDEX IF NOT EXISTS idx_last_accessed ON $_tableName(last_accessed)',
+        );
       },
     );
     return _db!;

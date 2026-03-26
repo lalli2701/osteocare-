@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -35,6 +36,8 @@ class _SurveyPageState extends State<SurveyPage> {
   bool _isSubmitting = false;
   String? _errorMessage;
   bool _voiceEnabled = true;
+  Timer? _autoNextTimer;
+  String? _questionValidationError;
   late Locale _currentLocale;
   bool _localeInitialized = false;
 
@@ -66,12 +69,9 @@ class _SurveyPageState extends State<SurveyPage> {
 
   Future<void> _initializeSurvey() async {
     try {
-      // Initialize services
+      // Initialize core service and load survey questions first.
+      // Voice and sync should not block form rendering on mobile.
       _surveyService = SurveyService();
-      await VoiceService().initialize();
-
-      final userId = await SurveySyncService.instance.resolveEffectiveUserId();
-      await SurveySyncService.instance.syncPendingSurveys(userId: userId);
 
       // Load voice preference
       final prefs = await SharedPreferences.getInstance();
@@ -79,11 +79,31 @@ class _SurveyPageState extends State<SurveyPage> {
 
       // Load questions from SurveyService
       await _loadQuestions();
+
+      // Background initialization should not keep survey in loading state.
+      unawaited(_initializeBackgroundServices());
     } catch (e) {
       setState(() {
         _errorMessage = 'Error initializing survey: ${e.toString()}';
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _initializeBackgroundServices() async {
+    try {
+      await VoiceService().initialize().timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Voice features remain optional if initialization fails.
+    }
+
+    try {
+      final userId = await SurveySyncService.instance.resolveEffectiveUserId();
+      await SurveySyncService.instance
+          .syncPendingSurveys(userId: userId)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      // Sync can be retried later and should not block survey usage.
     }
   }
 
@@ -110,40 +130,120 @@ class _SurveyPageState extends State<SurveyPage> {
   }
 
   void _nextQuestion() {
-    // Validate current question if required
     final currentQ = _questions[_currentQuestionIndex];
+    final validationError = _validateCurrentQuestion(currentQ);
 
-    if (currentQ.required) {
-      // Special handling for height_weight type that has sub_fields
-      if (currentQ.fieldName == 'height_weight') {
-        final feet = _formData['height_feet'];
-        final inches = _formData['height_inches'];
-        final weight = _formData['weight_kg'];
-        if (feet == null || inches == null || weight == null || weight == 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content:
-                    Text('Please enter height (feet and inches) and weight')),
-          );
-          return;
-        }
-      } else {
-        // Regular validation for other field types
-        if (_formData[currentQ.fieldName] == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Please answer this question before continuing')),
-          );
-          return;
-        }
-      }
+    if (validationError != null) {
+      setState(() {
+        _questionValidationError = validationError;
+      });
+      return;
     }
+
+    setState(() {
+      _questionValidationError = null;
+    });
+
+    _autoNextTimer?.cancel();
 
     if (_currentQuestionIndex < _questions.length - 1) {
       setState(() => _currentQuestionIndex++);
     } else {
       _submitSurvey();
     }
+  }
+
+  String? _validateCurrentQuestion(SurveyQuestion question) {
+    if (question.fieldName == 'height_weight') {
+      final feet = (_formData['height_feet'] as num?)?.toDouble();
+      final inches = (_formData['height_inches'] as num?)?.toDouble();
+      final weight = (_formData['weight_kg'] as num?)?.toDouble();
+
+      if (question.required &&
+          (feet == null || inches == null || weight == null || weight <= 0)) {
+        return 'Please enter height (feet and inches) and weight';
+      }
+
+      if (feet != null && inches != null && weight != null && weight > 0) {
+        final heightCm = (feet * 30.48) + (inches * 2.54);
+        final heightM = heightCm / 100;
+        final bmi = heightM > 0 ? weight / (heightM * heightM) : 0;
+        if (bmi < 10 || bmi > 60) {
+          return 'Please enter valid height/weight (BMI must be between 10 and 60)';
+        }
+      }
+      return null;
+    }
+
+    final value = _formData[question.fieldName];
+    final hasValue = value != null && value.toString().trim().isNotEmpty;
+
+    if (question.required && !hasValue) {
+      return 'Please answer this question before continuing';
+    }
+
+    if (question.fieldName == 'age' && hasValue) {
+      final age = (value is num) ? value.toDouble() : double.tryParse(value.toString());
+      if (age == null || age < 18 || age > 100) {
+        return 'Age must be between 18 and 100';
+      }
+    }
+
+    return null;
+  }
+
+  String? _ageValidationMessage(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+    final age = (value is num) ? value.toDouble() : double.tryParse(value.toString());
+    if (age == null) {
+      return 'Please enter a valid age';
+    }
+    if (age < 18 || age > 100) {
+      return 'Age must be between 18 and 100';
+    }
+    return null;
+  }
+
+  String? _heightWeightValidationMessage() {
+    final feet = (_formData['height_feet'] as num?)?.toDouble();
+    final inches = (_formData['height_inches'] as num?)?.toDouble();
+    final weight = (_formData['weight_kg'] as num?)?.toDouble();
+
+    if (feet == null || inches == null || weight == null || weight <= 0) {
+      return null;
+    }
+
+    final heightCm = (feet * 30.48) + (inches * 2.54);
+    final heightM = heightCm / 100;
+    final bmi = heightM > 0 ? weight / (heightM * heightM) : 0;
+    if (bmi < 10 || bmi > 60) {
+      return 'Please enter valid height/weight (BMI must be between 10 and 60)';
+    }
+    return null;
+  }
+
+  void _scheduleAutoNextIfOptional(SurveyQuestion question) {
+    if (question.required) {
+      return;
+    }
+    if (_currentQuestionIndex >= _questions.length - 1) {
+      return;
+    }
+
+    _autoNextTimer?.cancel();
+    _autoNextTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) {
+        return;
+      }
+      if (_questions[_currentQuestionIndex].fieldName != question.fieldName) {
+        return;
+      }
+      if (_validateCurrentQuestion(question) == null) {
+        _nextQuestion();
+      }
+    });
   }
 
   void _previousQuestion() {
@@ -367,6 +467,7 @@ class _SurveyPageState extends State<SurveyPage> {
 
   Future<void> _persistAndScheduleReassessment(Map<String, dynamic> result) async {
     final riskLevel = (result['risk_level']?.toString() ?? 'Moderate').trim();
+    final normalizedRisk = riskLevel.toLowerCase();
     final backendNextDate = result['next_reassessment_date']?.toString();
 
     DateTime nextDate;
@@ -383,9 +484,30 @@ class _SurveyPageState extends State<SurveyPage> {
     );
     await _storage.write(key: _reminderEnabledKey, value: 'true');
 
-    await NotificationService.instance.scheduleReassessmentReminder(
-      when: DateTime(nextDate.year, nextDate.month, nextDate.day, 9, 0),
-    );
+    try {
+      await NotificationService.instance.scheduleReassessmentReminder(
+        when: DateTime(nextDate.year, nextDate.month, nextDate.day, 9, 0),
+      );
+
+      if (normalizedRisk == 'high') {
+        final doctorReminderAt = DateTime.now().add(const Duration(days: 1));
+        await NotificationService.instance.scheduleDoctorConsultReminder(
+          when: DateTime(
+            doctorReminderAt.year,
+            doctorReminderAt.month,
+            doctorReminderAt.day,
+            10,
+            0,
+          ),
+          title: 'doctor_consult_reminder_title'.tr(),
+          body: 'doctor_consult_reminder_body'.tr(),
+        );
+      } else {
+        await NotificationService.instance.cancelDoctorConsultReminder();
+      }
+    } catch (_) {
+      // Reminder failures should never block survey completion/results display.
+    }
   }
 
   Widget _buildQuestionInput(SurveyQuestion question) {
@@ -395,6 +517,9 @@ class _SurveyPageState extends State<SurveyPage> {
 
     switch (type) {
       case 'number_input':
+        final ageError = fieldName == 'age'
+            ? (_questionValidationError ?? _ageValidationMessage(_formData[fieldName]))
+            : null;
         return TextFormField(
           keyboardType:
               const TextInputType.numberWithOptions(decimal: false),
@@ -403,11 +528,15 @@ class _SurveyPageState extends State<SurveyPage> {
             hintText: 'Enter a number',
             border: const OutlineInputBorder(),
             helperText: question.helpText,
+            errorText: ageError,
           ),
           onChanged: (value) {
             setState(() {
-              _formData[fieldName] =
-                  value.isEmpty ? null : int.tryParse(value);
+              final parsed = value.isEmpty ? null : int.tryParse(value);
+              _formData[fieldName] = parsed;
+              if (fieldName == 'age') {
+                _questionValidationError = _ageValidationMessage(parsed);
+              }
             });
           },
         );
@@ -428,6 +557,9 @@ class _SurveyPageState extends State<SurveyPage> {
               .toList(),
           onChanged: (value) {
             setState(() => _formData[fieldName] = value);
+            if (value != null) {
+              _scheduleAutoNextIfOptional(question);
+            }
           },
         );
 
@@ -505,6 +637,7 @@ class _SurveyPageState extends State<SurveyPage> {
                   child: OutlinedButton(
                     onPressed: () => setState(() {
                       _formData[fieldName] = isArthritis ? true : 'Yes';
+                      _scheduleAutoNextIfOptional(question);
                     }),
                     style: OutlinedButton.styleFrom(
                       backgroundColor: isYesSelected ? Colors.blue : null,
@@ -523,6 +656,7 @@ class _SurveyPageState extends State<SurveyPage> {
                   child: OutlinedButton(
                     onPressed: () => setState(() {
                       _formData[fieldName] = isArthritis ? false : 'No';
+                      _scheduleAutoNextIfOptional(question);
                     }),
                     style: OutlinedButton.styleFrom(
                       backgroundColor: isNoSelected ? Colors.blue : null,
@@ -568,6 +702,8 @@ class _SurveyPageState extends State<SurveyPage> {
         }
 
         final isComplete = feet != null && inches != null && weight != null;
+        final heightWeightError =
+          _questionValidationError ?? _heightWeightValidationMessage();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -628,9 +764,21 @@ class _SurveyPageState extends State<SurveyPage> {
               onChanged: (value) {
                 setState(() {
                   _formData['weight_kg'] = value.isEmpty ? null : double.tryParse(value);
+                  _questionValidationError = _heightWeightValidationMessage();
                 });
               },
             ),
+            if (heightWeightError != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                heightWeightError,
+                style: const TextStyle(
+                  color: Colors.red,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             // BMI Display
             if (isComplete && bmiStatus != null)
@@ -684,14 +832,38 @@ class _SurveyPageState extends State<SurveyPage> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Bone Health Survey')),
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/dashboard');
+              }
+            },
+          ),
+          title: const Text('Bone Health Survey'),
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_errorMessage != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Bone Health Survey')),
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/dashboard');
+              }
+            },
+          ),
+          title: const Text('Bone Health Survey'),
+        ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -704,7 +876,7 @@ class _SurveyPageState extends State<SurveyPage> {
                     _isLoading = true;
                     _errorMessage = null;
                   });
-                  _loadQuestions();
+                  _initializeSurvey();
                 },
                 child: const Text('Try Again'),
               ),
@@ -716,7 +888,19 @@ class _SurveyPageState extends State<SurveyPage> {
 
     if (_questions.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Bone Health Survey')),
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/dashboard');
+              }
+            },
+          ),
+          title: const Text('Bone Health Survey'),
+        ),
         body: const Center(child: Text('No questions available')),
       );
     }
@@ -726,6 +910,16 @@ class _SurveyPageState extends State<SurveyPage> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/dashboard');
+            }
+          },
+        ),
         title: const Text('Bone Health Survey'),
         elevation: 0,
       ),
@@ -858,6 +1052,7 @@ class _SurveyPageState extends State<SurveyPage> {
 
   @override
   void dispose() {
+    _autoNextTimer?.cancel();
     VoiceService().stop();
     super.dispose();
   }
