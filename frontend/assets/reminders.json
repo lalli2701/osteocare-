@@ -1,0 +1,40 @@
+{
+  "18-50": {
+    "LOW": [
+      "Start your day with a calcium-rich breakfast",
+      "Get 15-20 minutes of morning sunlight",
+      "Eat one banana as a mid-morning snack",
+      "Maintain proper posture while working",
+      "Include leafy greens in lunch",
+      "Drink enough water",
+      "Do 30-45 minutes of walking",
+      "Perform strength training",
+      "Maintain 7-8 hours of sleep",
+      "Avoid smoking and alcohol"
+    ],
+    "MODERATE": [
+      "Calcium-rich breakfast is mandatory",
+      "20 minutes sunlight exposure",
+      "Eat banana or boiled egg",
+      "Structured physical activity required",
+      "Strength training session",
+      "Track symptoms regularly",
+      "Avoid excessive caffeine",
+      "Monitor joint pain",
+      "Take Vitamin D if prescribed",
+      "Ensure proper footwear"
+    ],
+    "HIGH": [
+      "Follow doctor's plan strictly",
+      "Take Vitamin D daily",
+      "Calcium supplementation required",
+      "Supervised sunlight exposure",
+      "Avoid heavy lifting",
+      "Only supervised exercise",
+      "Monitor balance issues",
+      "Strict sleep routine",
+      "Avoid sudden movements",
+      "Consult doctor regularly"
+    ]
+  }
+}

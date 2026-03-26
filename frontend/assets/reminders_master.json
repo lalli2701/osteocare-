@@ -1,0 +1,90 @@
+{
+  "18-50": {
+    "LOW": {
+      "morning": [
+        "Start your day with calcium-rich breakfast",
+        "Get 15-20 minutes sunlight"
+      ],
+      "afternoon": [
+        "Eat leafy greens",
+        "Stay hydrated"
+      ],
+      "evening": [
+        "Walk for 30 minutes",
+        "Do light exercise"
+      ]
+    },
+    "MODERATE": {
+      "morning": [
+        "Calcium-rich breakfast is mandatory",
+        "20 minutes sunlight exposure"
+      ],
+      "afternoon": [
+        "Track symptoms regularly",
+        "Avoid excessive caffeine"
+      ],
+      "evening": [
+        "Structured physical activity required",
+        "Strength training session"
+      ]
+    },
+    "HIGH": {
+      "morning": [
+        "Follow doctor's plan strictly",
+        "Take Vitamin D daily"
+      ],
+      "afternoon": [
+        "Avoid heavy lifting",
+        "Monitor balance issues"
+      ],
+      "evening": [
+        "Only supervised exercise",
+        "Consult doctor regularly"
+      ]
+    }
+  },
+  "51+": {
+    "LOW": {
+      "morning": [
+        "Have calcium-rich breakfast and warm-up stretches",
+        "Take safe morning sunlight for 15 minutes"
+      ],
+      "afternoon": [
+        "Drink water regularly",
+        "Include protein and leafy vegetables"
+      ],
+      "evening": [
+        "Take a safe 20-minute walk",
+        "Do balance-friendly light exercises"
+      ]
+    },
+    "MODERATE": {
+      "morning": [
+        "Prioritize calcium and Vitamin D rich breakfast",
+        "Follow your physiotherapy warm-up routine"
+      ],
+      "afternoon": [
+        "Avoid long sitting periods",
+        "Track joint discomfort and fatigue"
+      ],
+      "evening": [
+        "Do guided strength and balance exercises",
+        "Keep pathways and home flooring clutter-free"
+      ]
+    },
+    "HIGH": {
+      "morning": [
+        "Follow prescribed medications and supplements",
+        "Use assistive support if advised while walking"
+      ],
+      "afternoon": [
+        "Avoid risky movement and sudden bending",
+        "Check home safety to prevent falls"
+      ],
+      "evening": [
+        "Only supervised low-impact movement",
+        "Report dizziness or balance changes promptly"
+      ]
+    }
+  }
+}

@@ -6,6 +6,8 @@ import 'dart:convert';
 import '../auth/auth_service.dart';
 import 'voice_service.dart';
 import 'speech_recognition_service.dart';
+import 'reminder_service.dart';
+import 'translation_cache_service.dart';
 
 enum AppLanguage {
   english('en', 'English', 'english'),
@@ -35,6 +37,7 @@ enum AppLanguage {
 
 class LanguageService {
   static const String _languageKey = 'preferred_language';
+  static const String _versionKey = 'translation_cache_version';
   static const String _backendUrl = 'http://localhost:5000';
 
   static Future<void> changeLanguage(
@@ -62,8 +65,17 @@ class LanguageService {
       // SpeechRecognitionService may not be available, continue anyway
     }
 
+    // Warm translated reminders in background (non-blocking)
+    _backgroundPreWarmReminders(language.code);
+
     // Send to backend
     await _updateBackendLanguage(language.backendValue);
+  }
+
+  static void _backgroundPreWarmReminders(String langCode) {
+    ReminderService.preTranslateForLanguage(langCode).catchError((_) {
+      // Background task failure is non-blocking.
+    });
   }
 
   static Future<void> _updateBackendLanguage(String language) async {
@@ -86,6 +98,39 @@ class LanguageService {
     } catch (e) {
       // Error updating language preference
     }
+  }
+
+  static Future<void> applySavedLanguage(BuildContext context) async {
+    final saved = await getSavedLanguage();
+    await context.setLocale(Locale(saved.code));
+
+    try {
+      await VoiceService().switchLanguage(saved.code);
+    } catch (_) {
+      // Voice service may be unavailable.
+    }
+
+    try {
+      await SpeechRecognitionService().setLanguage(saved.code);
+    } catch (_) {
+      // Speech recognition service may be unavailable.
+    }
+
+    // Check version and evict old translations if needed
+    final prefs = await SharedPreferences.getInstance();
+    final oldVersion = prefs.getString(_versionKey);
+    const currentVersion = '1.0.0';
+
+    if (oldVersion != null && oldVersion != currentVersion) {
+      await TranslationCacheService.instance
+          .evictVersion(langCode: saved.code, oldVersion: oldVersion);
+      await prefs.setString(_versionKey, currentVersion);
+    } else if (oldVersion == null) {
+      await prefs.setString(_versionKey, currentVersion);
+    }
+
+    // Fire background pre-warming without blocking
+    _backgroundPreWarmReminders(saved.code);
   }
 
   static Future<AppLanguage> getSavedLanguage() async {
@@ -131,6 +176,8 @@ class LanguageService {
           } catch (e) {
             // SpeechRecognitionService may not be available
           }
+
+          await ReminderService.preTranslateForLanguage(language.code);
         }
       }
     } catch (e) {

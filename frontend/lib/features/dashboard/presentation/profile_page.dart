@@ -25,12 +25,29 @@ class _ProfilePageState extends State<ProfilePage> {
   String _createdDate = 'Loading...';
   bool _isLoading = true;
   bool _voiceEnabled = true;
+  late Locale _currentLocale;
+  bool _localeInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
     _loadVoicePreference();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newLocale = context.locale;
+    if (!_localeInitialized) {
+      _currentLocale = newLocale;
+      _localeInitialized = true;
+      _loadUserData();
+      return;
+    }
+    if (newLocale != _currentLocale) {
+      _currentLocale = newLocale;
+      _loadUserData();
+    }
   }
 
   Future<void> _loadVoicePreference() async {
@@ -68,7 +85,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              value ? 'Voice features enabled' : 'Voice features disabled',
+              value ? 'voice_enabled'.tr() : 'voice_disabled'.tr(),
             ),
             duration: const Duration(seconds: 2),
           ),
@@ -77,7 +94,7 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating preference: $e')),
+          SnackBar(content: Text('error_loading'.tr())),
         );
       }
     }
@@ -126,7 +143,7 @@ class _ProfilePageState extends State<ProfilePage> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text('error_loading'.tr())),
         );
       }
     }
@@ -139,7 +156,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Profile'),
+          title: Text('profile'.tr()),
         ),
         body: const Center(child: CircularProgressIndicator()),
       );
@@ -147,7 +164,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Profile'),
+        title: Text('profile'.tr()),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -159,22 +176,22 @@ class _ProfilePageState extends State<ProfilePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Account Information',
+                    'account_info'.tr(),
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _infoRow('Full Name', _fullName),
-                  _infoRow('Phone Number', _phoneNumber),
-                  _infoRow('Account Created', _createdDate),
+                  _infoRow('full_name'.tr(), _fullName),
+                  _infoRow('phone_number'.tr(), _phoneNumber),
+                  _infoRow('profile_account_created'.tr(), _createdDate),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 24),
           Text(
-            'Settings & Support',
+            'settings_support'.tr(),
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
             ),
@@ -192,11 +209,11 @@ class _ProfilePageState extends State<ProfilePage> {
           Card(
             child: ListTile(
               leading: const Icon(Icons.mic),
-              title: const Text('Voice Features'),
+              title: Text('voice_features'.tr()),
               subtitle: Text(
                 _voiceEnabled
-                    ? 'Read questions aloud and speak answers'
-                    : 'Voice features disabled',
+                    ? 'profile_voice_enabled_desc'.tr()
+                    : 'voice_disabled'.tr(),
               ),
               trailing: Switch(
                 value: _voiceEnabled,
@@ -207,7 +224,7 @@ class _ProfilePageState extends State<ProfilePage> {
           Card(
             child: ListTile(
               leading: const Icon(Icons.lock),
-              title: const Text('Privacy Policy'),
+              title: Text('privacy_policy'.tr()),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: () => context.push('/privacy'),
             ),
@@ -215,7 +232,7 @@ class _ProfilePageState extends State<ProfilePage> {
           Card(
             child: ListTile(
               leading: const Icon(Icons.description),
-              title: const Text('Terms & Conditions'),
+              title: Text('terms_conditions'.tr()),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: () => context.push('/terms'),
             ),
@@ -223,7 +240,7 @@ class _ProfilePageState extends State<ProfilePage> {
           Card(
             child: ListTile(
               leading: const Icon(Icons.logout, color: Colors.orange),
-              title: const Text('Logout'),
+              title: Text('logout'.tr()),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: _logout,
             ),
@@ -231,7 +248,7 @@ class _ProfilePageState extends State<ProfilePage> {
           Card(
             child: ListTile(
               leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('Delete Account'),
+              title: Text('delete_account'.tr()),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: _deleteAccount,
             ),
@@ -273,10 +290,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _showLanguageSelector() async {
     final currentLanguage = AppLanguage.fromCode(context.locale.languageCode);
+    final pageContext = context; // Capture parent context before dialog
     
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text('select_language'.tr()),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -287,8 +305,9 @@ class _ProfilePageState extends State<ProfilePage> {
               groupValue: currentLanguage,
               onChanged: (AppLanguage? value) async {
                 if (value != null && mounted) {
-                  Navigator.pop(context);
-                  await LanguageService.changeLanguage(context, value);
+                  Navigator.pop(dialogContext);
+                  // Use parent context (pageContext) not dialog context
+                  await LanguageService.changeLanguage(pageContext, value);
                   setState(() {}); // Refresh to show new language
                 }
               },
@@ -297,7 +316,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: Text('cancel'.tr()),
           ),
         ],
@@ -309,12 +328,12 @@ class _ProfilePageState extends State<ProfilePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        title: Text('logout'.tr()),
+        content: Text('logout_confirm'.tr()),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text('cancel'.tr()),
           ),
           TextButton(
             onPressed: () async {
@@ -323,7 +342,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 context.go(LandingPage.routePath);
               }
             },
-            child: const Text('Logout'),
+            child: Text('logout'.tr()),
           ),
         ],
       ),
@@ -334,24 +353,22 @@ class _ProfilePageState extends State<ProfilePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Account'),
-        content: const Text(
-          'Are you sure you want to permanently delete your account? This action cannot be undone.',
-        ),
+        title: Text('delete_account'.tr()),
+        content: Text('delete_account_confirm'.tr()),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text('cancel'.tr()),
           ),
           TextButton(
             onPressed: () async {
               // TODO: Call backend delete endpoint
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Account deleted')),
+                SnackBar(content: Text('account_deleted'.tr())),
               );
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: Text('delete'.tr(), style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),

@@ -47,6 +47,11 @@ dependencies:
   # Networking
   dio: ^5.4.0
   http: ^1.1.0
+  sqflite: ^2.4.1
+  path: ^1.9.1
+  connectivity_plus: ^6.1.4
+  archive: ^3.6.1
+  crypto: ^3.0.6
 
   # Secure storage for tokens
   flutter_secure_storage: ^9.0.0
@@ -88,6 +93,8 @@ flutter:
 
   assets:
     - assets/new_logo.jpeg
+    - assets/reminders.json
+    - assets/reminders_master.json
     - assets/translations/
     - assets/survey/
 

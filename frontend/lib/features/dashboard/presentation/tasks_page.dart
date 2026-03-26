@@ -1,17 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 import '../../../core/auth/user_session.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/reminder_service.dart';
+import '../../../core/services/reminder_sync_service.dart';
 import '../../../core/services/tts_service.dart';
 import '../../chatbot/presentation/assistant_fab.dart';
 
 class TasksPage extends StatefulWidget {
-  const TasksPage({super.key, this.riskLevel});
+  const TasksPage({super.key, this.riskLevel, this.age});
 
   static const routePath = '/tasks';
 
   final String? riskLevel;
+  final int? age;
 
   @override
   State<TasksPage> createState() => _TasksPageState();
@@ -20,31 +24,126 @@ class TasksPage extends StatefulWidget {
 class _TasksPageState extends State<TasksPage> {
   TimeOfDay _selectedTime = const TimeOfDay(hour: 8, minute: 0);
   bool _isScheduling = false;
+  bool _isLoadingTips = true;
+  List<String> _tips = const [];
+  String _ageGroup = '18-50';
+  String _riskKey = 'MODERATE';
+  List<String> _activeSlots = const ['morning', 'afternoon', 'evening'];
+  late Locale _currentLocale;
+  bool _localeInitialized = false;
 
-  List<String> _tasksForRisk(String? level) {
-    final risk = (level ?? '').toLowerCase();
-    if (risk == 'low') {
-      return const [
-        'Walk or do light weight‑bearing exercise for at least 20–30 minutes most days.',
-        'Include calcium‑rich foods (milk, curd, ragi, leafy greens) in your meals.',
-        'Spend a few minutes in morning sunlight for natural vitamin D.',
-      ];
-    } else if (risk == 'high') {
-      return const [
-        'Talk to your doctor about a full bone health check and medication if needed.',
-        'Avoid smoking and limit alcohol as much as possible.',
-        'Keep your home safe to prevent falls (good lighting, no loose rugs, handrails).',
-        'Do only joint‑friendly, supervised exercises as advised by a physiotherapist or doctor.',
-      ];
-    } else {
-      // Moderate or unknown.
-      return const [
-        'Aim for at least 30 minutes of weight‑bearing activity (walking, stair‑climbing) most days.',
-        'Add 2–3 days of strength training with light weights or resistance bands.',
-        'Eat vitamin C and vitamin D rich foods (citrus fruits, guava, sprouts, eggs, fortified milk).',
-        'Avoid long periods of sitting; stand up and move every hour.',
-      ];
+  List<String> _defaultSlotsForRisk(String risk) {
+    switch (risk.toUpperCase()) {
+      case 'LOW':
+        return const ['morning'];
+      case 'HIGH':
+        return const ['morning', 'afternoon', 'evening'];
+      case 'MODERATE':
+      default:
+        return const ['morning', 'evening'];
     }
+  }
+
+  TimeOfDay _timeForSlot(String slot, TimeOfDay baseTime) {
+    final normalized = slot.toLowerCase();
+    if (normalized == 'morning') {
+      return baseTime;
+    }
+    if (normalized == 'afternoon') {
+      return const TimeOfDay(hour: 14, minute: 0);
+    }
+    if (normalized == 'evening') {
+      return const TimeOfDay(hour: 19, minute: 0);
+    }
+    return baseTime;
+  }
+
+  int _notificationIdForSlot(String slot) {
+    switch (slot.toLowerCase()) {
+      case 'morning':
+        return 21001;
+      case 'afternoon':
+        return 21002;
+      case 'evening':
+        return 21003;
+      default:
+        return 21999;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newLocale = context.locale;
+    if (!_localeInitialized) {
+      _currentLocale = newLocale;
+      _localeInitialized = true;
+      _loadTips();
+      return;
+    }
+    if (newLocale != _currentLocale) {
+      _currentLocale = newLocale;
+      _loadTips();
+    }
+  }
+
+  Future<void> _loadTips() async {
+    var risk = ReminderService.normalizeRisk(widget.riskLevel ?? 'moderate');
+    var ageGroup = ReminderService.ageGroupFromAge(widget.age);
+    var reminderTime = _selectedTime;
+    var slots = <String>['morning', 'afternoon', 'evening'];
+
+    final remoteConfig = await ReminderSyncService.instance.fetchConfig();
+    if (remoteConfig != null) {
+      risk = ReminderService.normalizeRisk(remoteConfig.riskLevel);
+      ageGroup = remoteConfig.ageGroup;
+      slots = remoteConfig.reminderSlots.isEmpty
+          ? _defaultSlotsForRisk(risk)
+          : remoteConfig.reminderSlots;
+
+      final parts = remoteConfig.reminderTime.split(':');
+      if (parts.length == 2) {
+        final hour = int.tryParse(parts[0]);
+        final minute = int.tryParse(parts[1]);
+        if (hour != null && minute != null) {
+          reminderTime = TimeOfDay(hour: hour, minute: minute);
+        }
+      }
+    }
+    if (remoteConfig == null) {
+      slots = _defaultSlotsForRisk(risk);
+    }
+
+    var tips = await ReminderService.getTips(
+      ageGroup: ageGroup,
+      risk: risk,
+      slots: slots,
+    );
+    if (tips.isEmpty) {
+      tips = await ReminderService.getTips(
+        ageGroup: '18-50',
+        risk: risk,
+        slots: slots,
+      );
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _riskKey = risk;
+      _ageGroup = ageGroup;
+      _tips = tips;
+      _activeSlots = slots;
+      _selectedTime = reminderTime;
+      _isLoadingTips = false;
+    });
   }
 
   Future<void> _pickTime() async {
@@ -62,23 +161,43 @@ class _TasksPageState extends State<TasksPage> {
   Future<void> _scheduleReminder() async {
     setState(() => _isScheduling = true);
 
-    final risk = (widget.riskLevel ?? 'moderate').toLowerCase();
-    String message;
-    if (risk == 'low') {
-      message =
-          'Take a short walk and include calcium and vitamin D rich foods today to keep your bones strong.';
-    } else if (risk == 'high') {
-      message =
-          'Move safely, avoid falls, and follow your doctor’s advice. A few gentle exercises now can still support your bones.';
-    } else {
-      message =
-          'Do a few minutes of weight‑bearing exercise and eat vitamin C and vitamin D rich foods to protect your bones.';
+    final slotsToSchedule = _activeSlots.isEmpty
+        ? _defaultSlotsForRisk(_riskKey)
+        : _activeSlots;
+
+    final ids = slotsToSchedule.map(_notificationIdForSlot).toList();
+    await NotificationService.instance.cancelTipsByIds(ids);
+
+    String firstTip = '';
+    for (final slot in slotsToSchedule) {
+      final slotTime = _timeForSlot(slot, _selectedTime);
+      final tip = await ReminderService.getOrCreateTodayTip(
+        _tips,
+        slotTag: slot,
+      );
+      firstTip = firstTip.isEmpty ? tip : firstTip;
+
+      await NotificationService.instance.scheduleDailyTip(
+        hour: slotTime.hour,
+        minute: slotTime.minute,
+        message: tip,
+        notificationId: _notificationIdForSlot(slot),
+      );
     }
 
-    await NotificationService.instance.scheduleDailyTip(
-      hour: _selectedTime.hour,
-      minute: _selectedTime.minute,
-      message: message,
+    final formattedTime =
+        '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}';
+    await ReminderSyncService.instance.saveConfig(
+      ageGroup: _ageGroup,
+      riskLevel: _riskKey,
+      reminderTime: formattedTime,
+      enabled: true,
+      reminderSlots: _activeSlots,
+    );
+    await ReminderSyncService.instance.logHabit(
+      tip: firstTip,
+      completed: false,
+      date: DateTime.now(),
     );
 
     if (mounted) {
@@ -86,7 +205,7 @@ class _TasksPageState extends State<TasksPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Daily reminder set for ${_selectedTime.format(context)}.',
+            'tasks_reminder_set'.tr(args: [_selectedTime.format(context)]),
           ),
         ),
       );
@@ -94,18 +213,11 @@ class _TasksPageState extends State<TasksPage> {
   }
 
   Future<void> _playVoiceTip() async {
-    final risk = (widget.riskLevel ?? 'moderate').toLowerCase();
-    String message;
-    if (risk == 'low') {
-      message =
-          'Great job keeping your risk low. Take a brisk walk, do simple strength exercises, and enjoy calcium rich foods today.';
-    } else if (risk == 'high') {
-      message =
-          'Your bone health needs extra care. Move carefully, avoid falls, follow your doctor’s plan, and take only safe, gentle exercises.';
-    } else {
-      message =
-          'To protect your bones, spend a few minutes walking, do light strength exercises, and include vitamin C and D rich foods in your meals today.';
-    }
+    final slot = (_activeSlots.isEmpty ? ['morning'] : _activeSlots).first;
+    final message = await ReminderService.getOrCreateTodayTip(
+      _tips,
+      slotTag: slot,
+    );
     await TtsService.instance.speakTip(message);
   }
 
@@ -125,25 +237,24 @@ class _TasksPageState extends State<TasksPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final tasks = _tasksForRisk(widget.riskLevel);
     final riskLabel = (widget.riskLevel ?? 'unknown').toLowerCase();
 
     final historyStream = _buildHistoryStream();
 
     String riskText;
     if (riskLabel == 'low') {
-      riskText = 'Low risk';
+      riskText = 'risk_low'.tr();
     } else if (riskLabel == 'high') {
-      riskText = 'High risk';
+      riskText = 'risk_high'.tr();
     } else if (riskLabel == 'moderate') {
-      riskText = 'Moderate risk';
+      riskText = 'risk_moderate'.tr();
     } else {
-      riskText = 'No recent survey result';
+      riskText = 'tasks_no_recent_result'.tr();
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Your tasks & history'),
+        title: Text('tasks_history_title'.tr()),
       ),
       floatingActionButton: const AssistantFab(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
@@ -152,7 +263,7 @@ class _TasksPageState extends State<TasksPage> {
         children: [
           Card(
             child: ListTile(
-              title: const Text('Latest risk level'),
+              title: Text('tasks_latest_risk'.tr()),
               subtitle: Text(riskText),
             ),
           ),
@@ -165,7 +276,7 @@ class _TasksPageState extends State<TasksPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Saved survey results',
+                      'tasks_saved_results'.tr(),
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.bold),
                     ),
@@ -173,6 +284,12 @@ class _TasksPageState extends State<TasksPage> {
                     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: historyStream,
                       builder: (context, snapshot) {
+                        if (snapshot.hasError) {
+                          return Text(
+                            'tasks_saved_results_error'.tr(),
+                            style: theme.textTheme.bodyMedium,
+                          );
+                        }
                         if (snapshot.connectionState ==
                             ConnectionState.waiting) {
                           return const Padding(
@@ -186,8 +303,8 @@ class _TasksPageState extends State<TasksPage> {
                         }
                         if (!snapshot.hasData ||
                             snapshot.data!.docs.isEmpty) {
-                          return const Text(
-                            'No saved surveys yet. Complete a survey to see it here.',
+                          return Text(
+                            'tasks_no_saved_surveys'.tr(),
                           );
                         }
 
@@ -210,20 +327,20 @@ class _TasksPageState extends State<TasksPage> {
 
                             String label;
                             if (risk == 'low') {
-                              label = 'Low risk';
+                              label = 'risk_low'.tr();
                             } else if (risk == 'high') {
-                              label = 'High risk';
+                              label = 'risk_high'.tr();
                             } else if (risk == 'moderate') {
-                              label = 'Moderate risk';
+                              label = 'risk_moderate'.tr();
                             } else {
-                              label = 'Unknown level';
+                              label = 'tasks_unknown_level'.tr();
                             }
 
                             return ListTile(
                               contentPadding: EdgeInsets.zero,
                               title: Text(label),
                               subtitle: Text(
-                                'Age: ${age ?? '-'}, Weight: ${weight ?? '-'} kg\n$dateText',
+                                'tasks_age_weight'.tr(args: ['${age ?? '-'}', '${weight ?? '-'}']) + '\n$dateText',
                               ),
                             );
                           }).toList(),
@@ -239,7 +356,7 @@ class _TasksPageState extends State<TasksPage> {
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text(
-                  'Sign in with your phone number so we can save and show your survey history here.',
+                  'tasks_signin_to_save'.tr(),
                   style: theme.textTheme.bodyMedium,
                 ),
               ),
@@ -252,12 +369,32 @@ class _TasksPageState extends State<TasksPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Daily precautions to protect your bones',
+                    'tasks_daily_precautions'.tr(),
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'tasks_age_group_risk'.tr(args: [_ageGroup, _riskKey]),
+                    style: theme.textTheme.bodySmall,
+                  ),
                   const SizedBox(height: 8),
-                  ...tasks.map(
+                  if (_isLoadingTips)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else if (_tips.isEmpty)
+                    Text(
+                      'tasks_no_personalized_tips'.tr(),
+                      style: theme.textTheme.bodyMedium,
+                    )
+                  else
+                    ..._tips.map(
                     (t) => Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Row(
@@ -281,26 +418,26 @@ class _TasksPageState extends State<TasksPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Daily voice tip reminder',
+                    'tasks_daily_voice_reminder'.tr(),
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Choose a time, and the app will send a notification with a short tip like “exercise a few minutes and eat vitamin C & D rich foods” to remind you.',
+                    'tasks_daily_voice_reminder_desc'.tr(),
                     style: theme.textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Text(
-                        'Reminder time: ${_selectedTime.format(context)}',
+                        'tasks_reminder_time'.tr(args: [_selectedTime.format(context)]),
                         style: theme.textTheme.bodyMedium,
                       ),
                       const Spacer(),
                       TextButton(
                         onPressed: _pickTime,
-                        child: const Text('Change'),
+                        child: Text('tasks_change'.tr()),
                       ),
                     ],
                   ),
@@ -314,13 +451,13 @@ class _TasksPageState extends State<TasksPage> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.notifications_active_outlined),
-                    label: const Text('Save daily reminder'),
+                    label: Text('tasks_save_daily_reminder'.tr()),
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: _playVoiceTip,
                     icon: const Icon(Icons.volume_up_outlined),
-                    label: const Text('Play today’s tip now'),
+                    label: Text('tasks_play_today_tip'.tr()),
                   ),
                 ],
               ),

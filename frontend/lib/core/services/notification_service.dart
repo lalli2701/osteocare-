@@ -32,6 +32,7 @@ class NotificationService {
     required int hour,
     required int minute,
     String? message,
+    int? notificationId,
   }) async {
     if (!_initialized) {
       await initialize();
@@ -62,8 +63,11 @@ class NotificationService {
       scheduled = scheduled.add(const Duration(days: 1));
     }
 
+    final effectiveId = notificationId ??
+        (DateTime.now().millisecondsSinceEpoch ~/ 1000);
+
     await _plugin.zonedSchedule(
-      id: 0,
+      id: effectiveId,
       title: 'OsteoCare+ daily tip',
       body:
           message ?? 'Take a few minutes to move and protect your bones today.',
@@ -72,6 +76,22 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.time,
     );
+  }
+
+  Future<void> cancelTipById(int id) async {
+    if (!_initialized) {
+      await initialize();
+    }
+    await _plugin.cancel(id: id);
+  }
+
+  Future<void> cancelTipsByIds(List<int> ids) async {
+    if (!_initialized) {
+      await initialize();
+    }
+    for (final id in ids) {
+      await _plugin.cancel(id: id);
+    }
   }
 
   Future<void> scheduleReassessmentReminder({

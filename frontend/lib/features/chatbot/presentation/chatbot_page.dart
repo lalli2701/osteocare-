@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/auth/user_session.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/services/dynamic_translation_service.dart';
 import '../../../core/services/tts_service.dart';
 
 class ChatbotPage extends StatefulWidget {
@@ -72,6 +73,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
     } catch (_) {
       // If backend/OpenAI is not available, fall back to an on-device answer.
       reply = _buildBotReply(text);
+      reply = await DynamicTranslationService.instance.translate(reply);
     }
 
     if (!mounted) return;
@@ -167,7 +169,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF14B8A6),
+        backgroundColor: const Color(0xFF2F80ED),
         elevation: 4,
         title: Row(
           children: [
@@ -226,13 +228,13 @@ class _ChatbotPageState extends State<ChatbotPage> {
         children: [
           Container(
             width: double.infinity,
-            color: const Color(0xFFE0F2F1),
+            color: const Color(0xFFEAF2FF),
             padding: const EdgeInsets.all(12),
             child: const Text(
               'This chatbot is for education only and does not provide medical diagnosis or treatment.',
               style: TextStyle(
                 fontSize: 12,
-                color: Color(0xFF00695C),
+                color: Color(0xFF1E5CB3),
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -247,7 +249,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
                     ? Alignment.centerRight
                     : Alignment.centerLeft;
                 final backgroundColor = msg.fromUser
-                    ? const Color(0xFF14B8A6)
+                  ? const Color(0xFF2F80ED)
                     : const Color(0xFFE8EBED);
                 final textColor =
                     msg.fromUser ? Colors.white : const Color(0xFF263238);
@@ -305,7 +307,9 @@ class _ChatbotPageState extends State<ChatbotPage> {
                     child: TextField(
                       controller: _controller,
                       minLines: 1,
-                      maxLines: 4,
+                      maxLines: 1,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _send(),
                       enabled: !_isSending,
                       decoration: InputDecoration(
                         hintText: 'Ask about osteoporosis, exercise, food...',
@@ -337,10 +341,10 @@ class _ChatbotPageState extends State<ChatbotPage> {
                       shape: BoxShape.circle,
                       color: _isSending
                           ? Colors.grey.shade300
-                          : const Color(0xFF14B8A6),
+                          : const Color(0xFF2F80ED),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF14B8A6)
+                          color: const Color(0xFF2F80ED)
                               .withValues(alpha: 0.3),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
@@ -355,7 +359,7 @@ class _ChatbotPageState extends State<ChatbotPage> {
                               child: CircularProgressIndicator(
                                 strokeWidth: 2.5,
                                 valueColor: AlwaysStoppedAnimation<Color>(
-                                  Color(0xFF14B8A6),
+                                  Color(0xFF2F80ED),
                                 ),
                               ),
                             )

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 import '../../../core/auth/auth_service.dart';
 import '../../dashboard/presentation/dashboard_page.dart';
@@ -37,7 +38,7 @@ class _LoginPageState extends State<LoginPage> {
     if (!_formKey.currentState!.validate()) return;
 
     if (!_agreedToTerms) {
-      _showError('Please agree to the Terms & Conditions and Privacy Policy');
+      _showError('auth_agree_terms_required'.tr());
       return;
     }
 
@@ -55,12 +56,12 @@ class _LoginPageState extends State<LoginPage> {
         context.go(DashboardPage.routePath);
       } else {
         setState(() => _isLoading = false);
-        _showError(result['error'] ?? 'Login failed');
+        _showError(result['error'] ?? 'auth_login_failed'.tr());
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      _showError('An error occurred. Please try again.');
+      _showError('auth_generic_error'.tr());
     }
   }
 
@@ -78,14 +79,14 @@ class _LoginPageState extends State<LoginPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Forgot Password'),
-        content: const Text(
-          'Please contact support to reset your password.\n\nFor demo purposes, you can create a new account.',
+        title: Text('forgot_password'.tr()),
+        content: Text(
+          'auth_forgot_password_help'.tr(),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: Text('ok'.tr()),
           ),
         ],
       ),
@@ -139,7 +140,7 @@ class _LoginPageState extends State<LoginPage> {
                 const SizedBox(height: 8),
                 
                 Text(
-                  'Predict & Prevent Osteoporosis',
+                  'tagline'.tr(),
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: Colors.grey[600],
                   ),
@@ -152,8 +153,8 @@ class _LoginPageState extends State<LoginPage> {
                 TextFormField(
                   controller: _phoneController,
                   decoration: InputDecoration(
-                    labelText: 'Phone Number',
-                    hintText: 'Enter 10-digit phone number',
+                    labelText: 'phone_number'.tr(),
+                    hintText: 'auth_enter_phone_10'.tr(),
                     prefixIcon: const Icon(Icons.phone),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -166,10 +167,10 @@ class _LoginPageState extends State<LoginPage> {
                   ],
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Phone number is required';
+                      return 'auth_phone_required'.tr();
                     }
                     if (value.length != 10) {
-                      return 'Phone number must be exactly 10 digits';
+                      return 'auth_phone_exact_10'.tr();
                     }
                     return null;
                   },
@@ -181,8 +182,8 @@ class _LoginPageState extends State<LoginPage> {
                 TextFormField(
                   controller: _passwordController,
                   decoration: InputDecoration(
-                    labelText: 'Password',
-                    hintText: 'Enter your password',
+                    labelText: 'password'.tr(),
+                    hintText: 'enter_password'.tr(),
                     prefixIcon: const Icon(Icons.lock),
                     suffixIcon: IconButton(
                       icon: Icon(
@@ -199,10 +200,10 @@ class _LoginPageState extends State<LoginPage> {
                   obscureText: !_showPassword,
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Password is required';
+                      return 'auth_password_required'.tr();
                     }
                     if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
+                      return 'auth_password_min_6'.tr();
                     }
                     return null;
                   },
@@ -216,7 +217,7 @@ class _LoginPageState extends State<LoginPage> {
                   child: TextButton(
                     onPressed: _showForgotPassword,
                     child: Text(
-                      'Forgot Password?',
+                      'forgot_password'.tr(),
                       style: TextStyle(
                         color: theme.colorScheme.primary,
                       ),
@@ -241,7 +242,7 @@ class _LoginPageState extends State<LoginPage> {
                         padding: const EdgeInsets.only(top: 12),
                         child: Wrap(
                           children: [
-                            const Text('I agree to the '),
+                            Text('auth_i_agree_to'.tr()),
                             GestureDetector(
                               onTap: () {
                                 Navigator.push(
@@ -252,7 +253,7 @@ class _LoginPageState extends State<LoginPage> {
                                 );
                               },
                               child: Text(
-                                'Terms & Conditions',
+                                'terms_conditions'.tr(),
                                 style: TextStyle(
                                   color: theme.colorScheme.primary,
                                   fontWeight: FontWeight.w600,
@@ -260,7 +261,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               ),
                             ),
-                            const Text(' and '),
+                            Text('auth_and'.tr()),
                             GestureDetector(
                               onTap: () {
                                 Navigator.push(
@@ -271,7 +272,7 @@ class _LoginPageState extends State<LoginPage> {
                                 );
                               },
                               child: Text(
-                                'Privacy Policy',
+                                'privacy_policy'.tr(),
                                 style: TextStyle(
                                   color: theme.colorScheme.primary,
                                   fontWeight: FontWeight.w600,
@@ -308,8 +309,8 @@ class _LoginPageState extends State<LoginPage> {
                             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           ),
                         )
-                      : const Text(
-                          'Login',
+                        : Text(
+                          'login'.tr(),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -324,7 +325,7 @@ class _LoginPageState extends State<LoginPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      "Don't have an account? ",
+                      'dont_have_account'.tr(),
                       style: TextStyle(color: Colors.grey[600]),
                     ),
                     GestureDetector(
@@ -332,7 +333,7 @@ class _LoginPageState extends State<LoginPage> {
                         context.go(SignupPage.routePath);
                       },
                       child: Text(
-                        'Sign Up',
+                        'signup'.tr(),
                         style: TextStyle(
                           color: theme.colorScheme.primary,
                           fontWeight: FontWeight.w600,

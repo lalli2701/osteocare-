@@ -8,6 +8,8 @@ import 'package:easy_localization/easy_localization.dart';
 import '../../../core/auth/auth_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/language_service.dart';
+import '../../../core/services/survey_sync_service.dart';
+import '../../../core/services/dynamic_translation_service.dart';
 import '../../onboarding/presentation/landing_page.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -31,6 +33,11 @@ class _DashboardPageState extends State<DashboardPage> {
   DateTime? _nextReassignmentDate;
   List<String> _recommendationsPreview = [];
   bool _remindersEnabled = false;
+  int _pendingSyncCount = 0;
+  int _failedPermanentSyncCount = 0;
+  DateTime? _lastSyncedAt;
+  late Locale _currentLocale;
+  bool _localeInitialized = false;
 
   static const _nextReassessmentDateKey = 'next_reassessment_date';
   static const _reminderEnabledKey = 'reminder_enabled';
@@ -38,7 +45,22 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
-    _loadDashboardData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newLocale = context.locale;
+    if (!_localeInitialized) {
+      _currentLocale = newLocale;
+      _localeInitialized = true;
+      _loadDashboardData();
+      return;
+    }
+    if (newLocale != _currentLocale) {
+      _currentLocale = newLocale;
+      _loadDashboardData();
+    }
   }
 
   Future<void> _loadDashboardData() async {
@@ -61,13 +83,23 @@ class _DashboardPageState extends State<DashboardPage> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        final rawRecommendations =
+            List<String>.from(data['recommendations_preview'] ?? []);
         
         // Load and set language preference from backend
         final preferredLanguage = data['preferred_language'] as String?;
+        String activeLangCode = context.locale.languageCode;
         if (preferredLanguage != null && mounted) {
           final language = AppLanguage.fromBackendValue(preferredLanguage);
+          activeLangCode = language.code;
           await context.setLocale(Locale(language.code));
         }
+
+        final translatedRecommendations =
+            await DynamicTranslationService.instance.translateMany(
+          rawRecommendations,
+          langCode: activeLangCode,
+        );
         
         setState(() {
           _fullName = data['full_name'] ?? 'User';
@@ -84,8 +116,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 : null;
           }
 
-          _recommendationsPreview =
-              List<String>.from(data['recommendations_preview'] ?? []);
+            _recommendationsPreview = translatedRecommendations;
           _remindersEnabled = data['reminders_enabled'] ?? true;
 
           _isLoading = false;
@@ -104,6 +135,8 @@ class _DashboardPageState extends State<DashboardPage> {
             }
           });
         }
+
+        await _refreshSyncStatus();
       } else if (response.statusCode == 401) {
         // Unauthorized, redirect to login
         if (mounted) {
@@ -117,22 +150,53 @@ class _DashboardPageState extends State<DashboardPage> {
       setState(() {
         _isLoading = false;
       });
+      await _refreshSyncStatus();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text('error_loading'.tr())),
         );
       }
     }
   }
 
+  Future<void> _refreshSyncStatus() async {
+    try {
+      final status = await SurveySyncService.instance.getSyncStatus();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _pendingSyncCount = (status['pending_count'] as num?)?.toInt() ?? 0;
+        _failedPermanentSyncCount = (status['failed_permanent_count'] as num?)?.toInt() ?? 0;
+        _lastSyncedAt = status['last_synced_at'] as DateTime?;
+      });
+    } catch (_) {
+      // Ignore sync status rendering errors.
+    }
+  }
+
+  String _formatRelative(DateTime value) {
+    final diff = DateTime.now().difference(value.toLocal());
+    if (diff.inSeconds < 60) {
+      return 'dashboard_just_now'.tr();
+    }
+    if (diff.inMinutes < 60) {
+      return 'dashboard_minutes_ago'.tr(args: ['${diff.inMinutes}']);
+    }
+    if (diff.inHours < 24) {
+      return 'dashboard_hours_ago'.tr(args: ['${diff.inHours}']);
+    }
+    return 'dashboard_days_ago'.tr(args: ['${diff.inDays}']);
+  }
+
   String _getGreeting() {
     final hour = DateTime.now().hour;
     if (hour < 12) {
-      return 'Good Morning';
+      return 'dashboard_greeting_morning'.tr();
     } else if (hour < 18) {
-      return 'Good Afternoon';
+      return 'dashboard_greeting_afternoon'.tr();
     } else {
-      return 'Good Evening';
+      return 'dashboard_greeting_evening'.tr();
     }
   }
 
@@ -174,13 +238,17 @@ class _DashboardPageState extends State<DashboardPage> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Reminders ${_remindersEnabled ? 'enabled' : 'disabled'}'),
+            content: Text(
+              _remindersEnabled
+                  ? 'dashboard_reminders_enabled'.tr()
+                  : 'dashboard_reminders_disabled'.tr(),
+            ),
           ),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(content: Text('error_loading'.tr())),
       );
     }
   }
@@ -224,7 +292,7 @@ class _DashboardPageState extends State<DashboardPage> {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Dashboard'),
+          title: Text('dashboard'.tr()),
           actions: [
             IconButton(
               icon: const Icon(Icons.settings),
@@ -238,7 +306,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard'),
+        title: Text('dashboard'.tr()),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -297,7 +365,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
             // Quick Actions Section
             Text(
-              'Quick Actions',
+              'dashboard_quick_actions'.tr(),
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
@@ -308,8 +376,8 @@ class _DashboardPageState extends State<DashboardPage> {
                 Expanded(
                   child: _quickActionCard(
                     icon: Icons.assignment,
-                    title: 'Assessment',
-                    subtitle: _riskLevel == null ? 'Start' : 'Retake',
+                    title: 'assessment'.tr(),
+                    subtitle: _riskLevel == null ? 'dashboard_start'.tr() : 'dashboard_retake'.tr(),
                     onTap: () => context.push('/survey'),
                   ),
                 ),
@@ -317,8 +385,8 @@ class _DashboardPageState extends State<DashboardPage> {
                 Expanded(
                   child: _quickActionCard(
                     icon: Icons.lightbulb,
-                    title: 'Recommendations',
-                    subtitle: 'View All',
+                    title: 'recommendations'.tr(),
+                    subtitle: 'dashboard_view_all'.tr(),
                     onTap: () {
                       // Navigate to Tasks tab within wrapper
                     },
@@ -328,12 +396,12 @@ class _DashboardPageState extends State<DashboardPage> {
                 Expanded(
                   child: _quickActionCard(
                     icon: Icons.download,
-                    title: 'Report',
-                    subtitle: 'Download',
+                    title: 'dashboard_report'.tr(),
+                    subtitle: 'dashboard_download'.tr(),
                     onTap: () {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Download feature coming soon'),
+                        SnackBar(
+                          content: Text('dashboard_download_soon'.tr()),
                         ),
                       );
                     },
@@ -346,7 +414,7 @@ class _DashboardPageState extends State<DashboardPage> {
             // Personalized Tips Preview
             if (_recommendationsPreview.isNotEmpty) ...[
               Text(
-                'Personalized Tips',
+                'dashboard_personalized_tips'.tr(),
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -371,7 +439,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   onPressed: () {
                     // Navigate to Tasks tab
                   },
-                  child: const Text('View All Tasks →'),
+                  child: Text('dashboard_view_all_tasks'.tr()),
                 ),
               ),
               const SizedBox(height: 20),
@@ -388,7 +456,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Reminders',
+                          'reminders'.tr(),
                           style: theme.textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
@@ -402,13 +470,13 @@ class _DashboardPageState extends State<DashboardPage> {
                     const SizedBox(height: 8),
                     if (_nextReassignmentDate != null)
                       Text(
-                        'Next Reassessment: ${_formatDate(_nextReassignmentDate!.toLocal())}',
+                        'dashboard_next_reassessment'.tr(args: [_formatDate(_nextReassignmentDate!.toLocal())]),
                         style: theme.textTheme.bodyMedium,
                       ),
                     if (_isReassessmentOverdue()) ...[
                       const SizedBox(height: 8),
                       Text(
-                        'Reassessment overdue. Please retake survey.',
+                        'dashboard_reassessment_overdue'.tr(),
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: Colors.red,
                           fontWeight: FontWeight.w600,
@@ -417,9 +485,53 @@ class _DashboardPageState extends State<DashboardPage> {
                     ],
                     const SizedBox(height: 8),
                     Text(
-                      'Reminders: ${_remindersEnabled ? 'Enabled' : 'Disabled'}',
+                      'dashboard_reminders_status'.tr(
+                        args: [_remindersEnabled ? 'enabled'.tr() : 'disabled'.tr()],
+                      ),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: _remindersEnabled ? Colors.green : Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'sync_status'.tr(),
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'dashboard_pending_records'.tr(args: ['$_pendingSyncCount']),
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    if (_failedPermanentSyncCount > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'dashboard_permanent_failures'.tr(args: ['$_failedPermanentSyncCount']),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.red[700],
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    Text(
+                      _lastSyncedAt == null
+                          ? 'dashboard_last_synced_never'.tr()
+                          : 'dashboard_last_synced'.tr(args: [_formatRelative(_lastSyncedAt!)]),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.grey[700],
                       ),
                     ),
                   ],
@@ -443,7 +555,7 @@ class _DashboardPageState extends State<DashboardPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'No Assessment Yet',
+              'dashboard_no_assessment_title'.tr(),
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: Colors.blue[900],
@@ -451,7 +563,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              'You have not completed your osteoporosis risk assessment.',
+              'dashboard_no_assessment_desc'.tr(),
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: Colors.blue[800],
               ),
@@ -459,7 +571,7 @@ class _DashboardPageState extends State<DashboardPage> {
             const SizedBox(height: 16),
             FilledButton(
               onPressed: () => context.push('/survey'),
-              child: const Text('Start Assessment'),
+              child: Text('take_assessment'.tr()),
             ),
           ],
         ),
@@ -490,14 +602,14 @@ class _DashboardPageState extends State<DashboardPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Your Risk Level',
+                          'your_risk_level'.tr(),
                           style: theme.textTheme.titleSmall?.copyWith(
                             color: Colors.grey,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _riskLevel ?? 'Unknown',
+                          _riskLevel ?? 'dashboard_unknown'.tr(),
                           style: theme.textTheme.headlineSmall?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: _getRiskColor(),
@@ -509,7 +621,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          'Risk Score',
+                          'risk_score'.tr(),
                           style: theme.textTheme.titleSmall?.copyWith(
                             color: Colors.grey,
                           ),
@@ -529,14 +641,16 @@ class _DashboardPageState extends State<DashboardPage> {
                 const SizedBox(height: 16),
                 if (_lastAssessmentDate != null)
                   Text(
-                    'Last Assessment: ${_lastAssessmentDate!.toLocal().toString().split(' ')[0]}',
+                    'dashboard_last_assessment'.tr(
+                      args: [_lastAssessmentDate!.toLocal().toString().split(' ')[0]],
+                    ),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: Colors.grey,
                     ),
                   ),
                 const SizedBox(height: 12),
                 Text(
-                  'Risk is based on provided lifestyle and medical factors.',
+                  'dashboard_risk_based_note'.tr(),
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: Colors.grey[600],
                   ),
@@ -544,7 +658,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 const SizedBox(height: 12),
                 FilledButton.tonal(
                   onPressed: () => context.push('/survey'),
-                  child: const Text('Retake Assessment'),
+                  child: Text('retake_assessment'.tr()),
                 ),
               ],
             ),
@@ -603,12 +717,12 @@ class _DashboardPageState extends State<DashboardPage> {
           children: [
             ListTile(
               leading: const Icon(Icons.person),
-              title: const Text('Profile Settings'),
+              title: Text('profile'.tr()),
               onTap: () => Navigator.pop(context),
             ),
             ListTile(
               leading: const Icon(Icons.lock),
-              title: const Text('Privacy Policy'),
+              title: Text('privacy_policy'.tr()),
               onTap: () {
                 Navigator.pop(context);
                 context.push('/privacy');
@@ -616,7 +730,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             ListTile(
               leading: const Icon(Icons.description),
-              title: const Text('Terms'),
+              title: Text('terms'.tr()),
               onTap: () {
                 Navigator.pop(context);
                 context.push('/terms');
@@ -624,7 +738,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.orange),
-              title: const Text('Logout'),
+              title: Text('logout'.tr()),
               onTap: () async {
                 Navigator.pop(context);
                 await _authService.logout();
@@ -635,7 +749,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             ListTile(
               leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('Delete Account'),
+              title: Text('delete_account'.tr()),
               onTap: () {
                 Navigator.pop(context);
                 _showDeleteAccountDialog();
@@ -651,24 +765,22 @@ class _DashboardPageState extends State<DashboardPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Account'),
-        content: const Text(
-          'Are you sure you want to permanently delete your account? This action cannot be undone.',
-        ),
+        title: Text('delete_account'.tr()),
+        content: Text('delete_account_confirm'.tr()),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text('cancel'.tr()),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               // TODO: Call backend delete endpoint
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Account deleted')),
+                SnackBar(content: Text('account_deleted'.tr())),
               );
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: Text('delete'.tr(), style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),

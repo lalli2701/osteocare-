@@ -63,9 +63,23 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: TasksPage.routePath,
-        builder: (context, state) => TasksPage(
-          riskLevel: state.extra is String ? state.extra as String : null,
-        ),
+        builder: (context, state) {
+          String? riskLevel;
+          int? age;
+
+          final extra = state.extra;
+          if (extra is String) {
+            riskLevel = extra;
+          } else if (extra is Map<String, dynamic>) {
+            riskLevel = extra['risk_level']?.toString();
+            age = int.tryParse(extra['age']?.toString() ?? '');
+          }
+
+          return TasksPage(
+            riskLevel: riskLevel,
+            age: age,
+          );
+        },
       ),
       GoRoute(
         path: ChatbotPage.routePath,

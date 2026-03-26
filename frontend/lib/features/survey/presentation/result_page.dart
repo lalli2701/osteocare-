@@ -1,16 +1,88 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:easy_localization/easy_localization.dart';
+import '../../../core/services/dynamic_translation_service.dart';
 
 import '../../dashboard/presentation/tasks_page.dart';
 import 'survey_page.dart';
 import '../../chatbot/presentation/assistant_fab.dart';
 
-class ResultPage extends StatelessWidget {
+class ResultPage extends StatefulWidget {
   const ResultPage({super.key, this.result});
 
   static const routePath = '/results';
 
   final dynamic result; // Map<String, dynamic> from API
+
+  @override
+  State<ResultPage> createState() => _ResultPageState();
+}
+
+class _ResultPageState extends State<ResultPage> {
+  late Locale _currentLocale;
+  bool _localeInitialized = false;
+  String? _translatedMessage;
+  List<String> _translatedTasks = const [];
+  List<String> _translatedAlerts = const [];
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newLocale = context.locale;
+    if (!_localeInitialized) {
+      _currentLocale = newLocale;
+      _localeInitialized = true;
+      _translateDynamicContent();
+      return;
+    }
+    if (newLocale != _currentLocale) {
+      _currentLocale = newLocale;
+      _translateDynamicContent();
+    }
+  }
+
+  Future<void> _translateDynamicContent() async {
+    if (widget.result is! Map<String, dynamic>) {
+      return;
+    }
+    final payload = widget.result as Map<String, dynamic>;
+    final langCode = context.locale.languageCode;
+
+    final message = (payload['message'] ?? '').toString();
+    final tasks = List<String>.from(payload['recommended_tasks'] ?? const []);
+    final alerts = List<String>.from(payload['medical_alerts'] ?? const []);
+
+    final translatedMessage = message.isEmpty
+        ? ''
+        : await DynamicTranslationService.instance.translate(
+            message,
+            langCode: langCode,
+          );
+    final translatedTasks = tasks.isEmpty
+        ? const <String>[]
+        : await DynamicTranslationService.instance.translateMany(
+            tasks,
+            langCode: langCode,
+          );
+    final translatedAlerts = alerts.isEmpty
+        ? const <String>[]
+        : await DynamicTranslationService.instance.translateMany(
+            alerts,
+            langCode: langCode,
+          );
+
+    if (!mounted) return;
+    setState(() {
+      _translatedMessage = translatedMessage.isEmpty ? null : translatedMessage;
+      _translatedTasks = translatedTasks;
+      _translatedAlerts = translatedAlerts;
+    });
+  }
 
   Color _colorForRisk(String level) {
     switch (level.toLowerCase()) {
@@ -27,13 +99,32 @@ class ResultPage extends StatelessWidget {
   String _labelForRisk(String level) {
     switch (level.toLowerCase()) {
       case 'low':
-        return 'Low Risk';
+        return 'risk_low'.tr();
       case 'high':
-        return 'High Risk';
+        return 'risk_high'.tr();
       case 'moderate':
       default:
-        return 'Moderate Risk';
+        return 'risk_moderate'.tr();
     }
+  }
+
+  int? _extractAgeFromResult(dynamic payload) {
+    if (payload is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final directAge = payload['age'];
+    final parsedDirect = int.tryParse(directAge?.toString() ?? '');
+    if (parsedDirect != null) {
+      return parsedDirect;
+    }
+
+    final inputs = payload['inputs'];
+    if (inputs is Map<String, dynamic>) {
+      final age = inputs['age'];
+      return int.tryParse(age?.toString() ?? '');
+    }
+    return null;
   }
 
   @override
@@ -42,22 +133,26 @@ class ResultPage extends StatelessWidget {
     
     // Extract data from result
     String riskLevel = 'Unknown';
-    String message = 'Complete the survey to get a personalised assessment.';
+    String message = 'result_survey_incomplete'.tr();
     double probability = 0.0;
     List<String> tasks = [];
     List<String> alerts = [];
 
-    if (result is Map<String, dynamic>) {
-      riskLevel = result['risk_level'] ?? 'Unknown';
-      message = result['message'] ?? message;
-      probability = (result['probability'] ?? 0.0).toDouble();
-      tasks = List<String>.from(result['recommended_tasks'] ?? []);
-      alerts = List<String>.from(result['medical_alerts'] ?? []);
+    if (widget.result is Map<String, dynamic>) {
+      riskLevel = widget.result['risk_level'] ?? 'Unknown';
+      message = widget.result['message'] ?? message;
+      probability = (widget.result['probability'] ?? 0.0).toDouble();
+      tasks = List<String>.from(widget.result['recommended_tasks'] ?? []);
+      alerts = List<String>.from(widget.result['medical_alerts'] ?? []);
     }
+
+    final shownMessage = _translatedMessage ?? message;
+    final shownTasks = _translatedTasks.isEmpty ? tasks : _translatedTasks;
+    final shownAlerts = _translatedAlerts.isEmpty ? alerts : _translatedAlerts;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Your Risk Assessment'),
+        title: Text('result_title'.tr()),
       ),
       floatingActionButton: const AssistantFab(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
@@ -75,7 +170,7 @@ class ResultPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Text(
-                      'Bone Health Risk Level',
+                      'result_risk_level'.tr(),
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.w600),
                     ),
@@ -104,7 +199,7 @@ class ResultPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Risk Probability: ${(probability * 100).toStringAsFixed(1)}%',
+                      'result_probability'.tr(args: [(probability * 100).toStringAsFixed(1)]),
                       style: theme.textTheme.bodyMedium,
                     ),
                   ],
@@ -122,13 +217,13 @@ class ResultPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Assessment Summary',
+                      'result_summary'.tr(),
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      message,
+                      shownMessage,
                       style: theme.textTheme.bodyMedium,
                     ),
                   ],
@@ -138,7 +233,7 @@ class ResultPage extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Recommended Tasks
-            if (tasks.isNotEmpty) ...[
+            if (shownTasks.isNotEmpty) ...[
               Card(
                 elevation: 1,
                 child: Padding(
@@ -147,12 +242,12 @@ class ResultPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Recommended Actions',
+                        'result_recommendations'.tr(),
                         style: theme.textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 12),
-                      ...tasks.asMap().entries.map((entry) {
+                      ...shownTasks.asMap().entries.map((entry) {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Row(
@@ -192,7 +287,7 @@ class ResultPage extends StatelessWidget {
             ],
 
             // Medical Alerts
-            if (alerts.isNotEmpty) ...[
+            if (shownAlerts.isNotEmpty) ...[
               Card(
                 elevation: 1,
                 color: Colors.orange[50],
@@ -209,7 +304,7 @@ class ResultPage extends StatelessWidget {
                           ),
                           const SizedBox(width: 12),
                           Text(
-                            'Important Notes',
+                            'result_alerts'.tr(),
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w600,
                               color: Colors.orange[900],
@@ -218,7 +313,7 @@ class ResultPage extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      ...alerts.map((alert) {
+                      ...shownAlerts.map((alert) {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Text(
@@ -240,7 +335,7 @@ class ResultPage extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
-                'This assessment is for educational purposes only. Please consult with a healthcare professional for medical advice.',
+                'result_disclaimer'.tr(),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: Colors.grey[600],
                   fontStyle: FontStyle.italic,
@@ -252,18 +347,27 @@ class ResultPage extends StatelessWidget {
 
             // Action Buttons
             FilledButton(
-              onPressed: () => context.go(TasksPage.routePath, extra: riskLevel),
-              child: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('View Health Tips'),
+              onPressed: () {
+                final age = _extractAgeFromResult(widget.result);
+                context.go(
+                  TasksPage.routePath,
+                  extra: {
+                    'risk_level': riskLevel,
+                    'age': age,
+                  },
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text('view_health_tips'.tr()),
               ),
             ),
             const SizedBox(height: 12),
             OutlinedButton(
               onPressed: () => context.go(SurveyPage.routePath),
-              child: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('Retake Survey'),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text('retake_survey'.tr()),
               ),
             ),
           ],
@@ -272,4 +376,3 @@ class ResultPage extends StatelessWidget {
     );
   }
 }
-

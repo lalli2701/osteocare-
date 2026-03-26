@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:go_router/go_router.dart';
+import 'package:easy_localization/easy_localization.dart';
+
+import '../../../core/services/language_service.dart';
 
 class LandingPage extends StatefulWidget {
   const LandingPage({super.key});
@@ -18,42 +21,13 @@ class _LandingPageState extends State<LandingPage> {
   bool _isPaused = false;
   bool _hasAutoPlayed = false;
 
-  static const String _voiceScript = '''Hello and welcome to OsteoCare+.
-
-This application helps you understand your osteoporosis risk level in a simple and clear manner.
-
-Please note carefully, this app does not diagnose osteoporosis and it does not replace consultation with a qualified medical professional. It only provides an AI-based risk assessment for awareness purposes.
-
-We collect basic information such as your age, gender, lifestyle habits, and certain medical history details. These inputs are used only to calculate your personalized risk score.
-
-Your data is kept secure and is not sold to any third party.
-
-Let me briefly explain how the app works.
-
-Step one: Create your account using your phone number.
-
-Step two: Enter your health and lifestyle details.
-
-Step three: Our machine learning model analyses your information.
-
-Step four: You receive your risk category — Low, Moderate, or High.
-
-Step five: You get personalized recommendations and reminder notifications to support your bone health.
-
-Osteoporosis affects over 1.5 crore people worldwide. One in three women and one in five men above the age of fifty are at risk.
-
-It is always better to be aware early and take preventive steps.
-
-To continue, please select Sign Up if you are new, or Login if you already have an account.
-
-Thank you for choosing OsteoCare+.''';
-
   Future<void> _initTts() async {
     if (_ttsReady) return;
     _flutterTts = FlutterTts();
     final tts = _flutterTts!;
 
-    await tts.setLanguage('en-IN');
+    final language = AppLanguage.fromCode(context.locale.languageCode);
+    await tts.setLanguage(LanguageService.getTTSLanguageCode(language));
     await tts.setSpeechRate(0.42);
     await tts.setPitch(1.0);
 
@@ -108,8 +82,10 @@ Thank you for choosing OsteoCare+.''';
     await _initTts();
     final tts = _flutterTts;
     if (tts == null) return;
+    final language = AppLanguage.fromCode(context.locale.languageCode);
+    await tts.setLanguage(LanguageService.getTTSLanguageCode(language));
     await tts.stop();
-    await tts.speak(_voiceScript);
+    await tts.speak('voice_script'.tr());
   }
 
   Future<void> _pauseOverview() async {
@@ -187,7 +163,7 @@ Thank you for choosing OsteoCare+.''';
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'AI-Based Osteoporosis Risk Screening',
+                      'landing_tagline'.tr(),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.headlineSmall?.copyWith(
                         color: Colors.white.withValues(alpha: 0.7),
@@ -213,7 +189,7 @@ Thank you for choosing OsteoCare+.''';
                         ],
                       ),
                       child: Text(
-                        'Early risk awareness supports preventive care and helps reduce fracture complications.',
+                        'landing_early_awareness'.tr(),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.titleLarge?.copyWith(
                           color: Colors.white.withValues(alpha: 0.85),
@@ -222,11 +198,56 @@ Thank you for choosing OsteoCare+.''';
                       ),
                     ),
                     const SizedBox(height: 44),
+                    // Language Selector
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00D9A3).withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFF00D9A3).withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'select_language'.tr(),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _languageButton(
+                                label: 'english'.tr(),
+                                locale: const Locale('en'),
+                                isSelected: context.locale.languageCode == 'en',
+                              ),
+                              _languageButton(
+                                label: 'hindi'.tr(),
+                                locale: const Locale('hi'),
+                                isSelected: context.locale.languageCode == 'hi',
+                              ),
+                              _languageButton(
+                                label: 'telugu'.tr(),
+                                locale: const Locale('te'),
+                                isSelected: context.locale.languageCode == 'te',
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
                     Center(
                       child: SizedBox(
                         width: 235,
                         child: _darkGradientButton(
-                          label: 'Create Account',
+                          label: 'create_account'.tr(),
                           onPressed: () => context.push('/signup'),
                         ),
                       ),
@@ -247,9 +268,9 @@ Thank you for choosing OsteoCare+.''';
                               borderRadius: BorderRadius.circular(16),
                             ),
                           ),
-                          child: const Text(
-                            'Sign In',
-                            style: TextStyle(
+                          child: Text(
+                            'sign_in'.tr(),
+                            style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
                               color: Color(0xFF00D9A3),
@@ -283,7 +304,7 @@ Thank you for choosing OsteoCare+.''';
                               const Icon(Icons.record_voice_over, color: Color(0xFF00D9A3)),
                               const SizedBox(width: 10),
                               Text(
-                                'Tap to Hear Overview',
+                                'landing_tap_overview'.tr(),
                                 style: theme.textTheme.headlineSmall?.copyWith(
                                   color: Colors.white.withValues(alpha: 0.9),
                                   fontWeight: FontWeight.w700,
@@ -293,7 +314,7 @@ Thank you for choosing OsteoCare+.''';
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Voice guidance available for accessibility.',
+                            'landing_voice_guidance'.tr(),
                             style: theme.textTheme.titleMedium?.copyWith(
                               color: Colors.white.withValues(alpha: 0.5),
                               fontWeight: FontWeight.w700,
@@ -306,7 +327,7 @@ Thank you for choosing OsteoCare+.''';
                     ),
                     const SizedBox(height: 80),
                     Text(
-                      'Why We Ask for Your Details',
+                      'landing_why_details'.tr(),
                       style: theme.textTheme.displaySmall?.copyWith(
                         color: Colors.white.withValues(alpha: 0.92),
                         fontWeight: FontWeight.w800,
@@ -314,16 +335,16 @@ Thank you for choosing OsteoCare+.''';
                     ),
                     const SizedBox(height: 16),
                     _simpleTile(
-                      'We collect age, gender, lifestyle habits, and medical history only for risk assessment.',
+                      'landing_detail_1'.tr(),
                     ),
                     _simpleTile(
-                      'This app gives AI-based risk assessment for awareness purposes; it is not a diagnosis tool.',
+                      'landing_detail_2'.tr(),
                     ),
                     _simpleTile(
-                      'Always consult a qualified doctor for diagnosis and treatment decisions.',
+                      'landing_detail_3'.tr(),
                     ),
                     _simpleTile(
-                      'Your data is stored securely and is never sold to third parties.',
+                      'landing_detail_4'.tr(),
                     ),
                     const SizedBox(height: 34),
                     Container(
@@ -350,7 +371,7 @@ Thank you for choosing OsteoCare+.''';
                               const Icon(Icons.warning_rounded, color: Color(0xFFED6C02)),
                               const SizedBox(width: 10),
                               Text(
-                                'Medical Disclaimer',
+                                'landing_medical_disclaimer'.tr(),
                                 style: theme.textTheme.headlineSmall?.copyWith(
                                   color: Colors.white.withValues(alpha: 0.92),
                                   fontWeight: FontWeight.w700,
@@ -360,7 +381,7 @@ Thank you for choosing OsteoCare+.''';
                           ),
                           const SizedBox(height: 14),
                           Text(
-                            'This app does not provide medical diagnosis. Results are algorithm-based risk estimates. Always consult a licensed doctor for medical advice, diagnosis, and treatment decisions.',
+                            'landing_medical_disclaimer_text'.tr(),
                             style: theme.textTheme.titleMedium?.copyWith(
                               color: Colors.white.withValues(alpha: 0.82),
                               height: 1.5,
@@ -371,27 +392,27 @@ Thank you for choosing OsteoCare+.''';
                     ),
                     const SizedBox(height: 34),
                     Text(
-                      'How App Works',
+                      'landing_how_it_works'.tr(),
                       style: theme.textTheme.displaySmall?.copyWith(
                         color: Colors.white.withValues(alpha: 0.92),
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const SizedBox(height: 14),
-                    _flowStep(1, 'Create account with phone number.'),
-                    _flowStep(2, 'Enter health and lifestyle details.'),
-                    _flowStep(3, 'Model analyses your information.'),
-                    _flowStep(4, 'See risk category: Low / Moderate / High.'),
-                    _flowStep(5, 'Get recommendations and reminders.'),
+                    _flowStep(1, 'landing_step_1'.tr()),
+                    _flowStep(2, 'landing_step_2'.tr()),
+                    _flowStep(3, 'landing_step_3'.tr()),
+                    _flowStep(4, 'landing_step_4'.tr()),
+                    _flowStep(5, 'landing_step_5'.tr()),
                     const SizedBox(height: 28),
                     Wrap(
                       spacing: 54,
                       runSpacing: 14,
                       alignment: WrapAlignment.center,
                       children: [
-                        _stat('1.5L+', 'People Affected Worldwide', const Color(0xFF00D9A3)),
-                        _stat('1 in 3', 'Women Over 50', const Color(0xFFC8A028)),
-                        _stat('1 in 5', 'Men Over 50', const Color(0xFF1AAFD3)),
+                        _stat('1.5L+', 'landing_stat_people'.tr(), const Color(0xFF00D9A3)),
+                        _stat('1 in 3', 'landing_stat_women'.tr(), const Color(0xFFC8A028)),
+                        _stat('1 in 5', 'landing_stat_men'.tr(), const Color(0xFF1AAFD3)),
                       ],
                     ),
                     const SizedBox(height: 26),
@@ -399,13 +420,13 @@ Thank you for choosing OsteoCare+.''';
                       child: Wrap(
                         spacing: 10,
                         children: [
-                          _footerLink('Terms', () => context.push('/terms')),
+                          _footerLink('terms'.tr(), () => context.push('/terms')),
                           Text('•', style: TextStyle(color: Colors.white.withValues(alpha: 0.35))),
-                          _footerLink('Privacy', () => context.push('/privacy')),
+                          _footerLink('privacy_policy'.tr(), () => context.push('/privacy')),
                           Text('•', style: TextStyle(color: Colors.white.withValues(alpha: 0.35))),
-                          _footerLink('Contact', () {
+                          _footerLink('contact'.tr(), () {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Contact: support@osteocare.app')),
+                              SnackBar(content: Text('landing_contact_snackbar'.tr())),
                             );
                           }),
                         ],
@@ -476,13 +497,13 @@ Thank you for choosing OsteoCare+.''';
                   _playOverview();
                 }
               },
-              tooltip: _isPaused || !_isSpeaking ? 'Play/Resume' : 'Pause',
+              tooltip: _isPaused || !_isSpeaking ? 'landing_play_resume'.tr() : 'landing_pause'.tr(),
             ),
             const SizedBox(width: 8),
             _floatingIconButton(
               icon: Icons.stop,
               onTap: _stopOverview,
-              tooltip: 'Stop',
+              tooltip: 'landing_stop'.tr(),
               enabled: _isSpeaking || _isPaused,
             ),
           ],
@@ -661,4 +682,51 @@ Thank you for choosing OsteoCare+.''';
       ),
     );
   }
+
+  Widget _languageButton({
+    required String label,
+    required Locale locale,
+    required bool isSelected,
+  }) {
+    return Expanded(
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF00D9A3) : const Color(0xFF00D9A3).withValues(alpha: 0.3),
+            width: isSelected ? 2 : 1,
+          ),
+          color: isSelected ? const Color(0xFF00D9A3).withValues(alpha: 0.15) : Colors.transparent,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () async {
+              await LanguageService.changeLanguage(
+                context,
+                AppLanguage.fromCode(locale.languageCode),
+              );
+              if (mounted) {
+                setState(() {});
+              }
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: isSelected ? const Color(0xFF00D9A3) : Colors.white.withValues(alpha: 0.7),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
+

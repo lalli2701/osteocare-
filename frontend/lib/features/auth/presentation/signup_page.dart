@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 import '../../../core/auth/auth_service.dart';
 import '../../dashboard/presentation/dashboard_wrapper.dart';
@@ -42,7 +43,7 @@ class _SignupPageState extends State<SignupPage> {
     if (!_formKey.currentState!.validate()) return;
 
     if (!_agreedToTerms) {
-      _showError('Please agree to the Terms & Conditions and Privacy Policy');
+      _showError('auth_agree_terms_required'.tr());
       return;
     }
 
@@ -58,7 +59,7 @@ class _SignupPageState extends State<SignupPage> {
       if (!mounted) return;
 
       if (result['success'] == true) {
-        _showSuccess('Account created successfully! Redirecting...');
+        _showSuccess('auth_account_created_redirecting'.tr());
         // Navigate directly to dashboard
         Future.delayed(const Duration(seconds: 1), () {
           if (mounted) {
@@ -67,12 +68,12 @@ class _SignupPageState extends State<SignupPage> {
         });
       } else {
         setState(() => _isLoading = false);
-        _showError(result['error'] ?? 'Signup failed');
+        _showError(result['error'] ?? 'auth_signup_failed'.tr());
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      _showError('An error occurred. Please try again.');
+      _showError('auth_generic_error'.tr());
     }
   }
 
@@ -143,7 +144,7 @@ class _SignupPageState extends State<SignupPage> {
                 const SizedBox(height: 8),
                 
                 Text(
-                  'Create your account',
+                  'signup_subtitle'.tr(),
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: Colors.grey[600],
                   ),
@@ -156,8 +157,8 @@ class _SignupPageState extends State<SignupPage> {
                 TextFormField(
                   controller: _nameController,
                   decoration: InputDecoration(
-                    labelText: 'Full Name',
-                    hintText: 'Enter your full name',
+                    labelText: 'full_name'.tr(),
+                    hintText: 'enter_name'.tr(),
                     prefixIcon: const Icon(Icons.person),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -166,7 +167,7 @@ class _SignupPageState extends State<SignupPage> {
                   textCapitalization: TextCapitalization.words,
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Full name is required';
+                      return 'auth_full_name_required'.tr();
                     }
                     return null;
                   },
@@ -178,8 +179,8 @@ class _SignupPageState extends State<SignupPage> {
                 TextFormField(
                   controller: _phoneController,
                   decoration: InputDecoration(
-                    labelText: 'Phone Number',
-                    hintText: 'Enter 10-digit phone number',
+                    labelText: 'phone_number'.tr(),
+                    hintText: 'auth_enter_phone_10'.tr(),
                     prefixIcon: const Icon(Icons.phone),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -192,10 +193,10 @@ class _SignupPageState extends State<SignupPage> {
                   ],
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Phone number is required';
+                      return 'auth_phone_required'.tr();
                     }
                     if (value.length != 10) {
-                      return 'Phone number must be exactly 10 digits';
+                      return 'auth_phone_exact_10'.tr();
                     }
                     return null;
                   },
@@ -207,8 +208,8 @@ class _SignupPageState extends State<SignupPage> {
                 TextFormField(
                   controller: _passwordController,
                   decoration: InputDecoration(
-                    labelText: 'Password',
-                    hintText: 'Enter password (min 6 characters)',
+                    labelText: 'password'.tr(),
+                    hintText: 'auth_enter_password_min_6'.tr(),
                     prefixIcon: const Icon(Icons.lock),
                     suffixIcon: IconButton(
                       icon: Icon(
@@ -225,10 +226,10 @@ class _SignupPageState extends State<SignupPage> {
                   obscureText: !_showPassword,
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Password is required';
+                      return 'auth_password_required'.tr();
                     }
                     if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
+                      return 'auth_password_min_6'.tr();
                     }
                     return null;
                   },
@@ -240,8 +241,8 @@ class _SignupPageState extends State<SignupPage> {
                 TextFormField(
                   controller: _confirmPasswordController,
                   decoration: InputDecoration(
-                    labelText: 'Confirm Password',
-                    hintText: 'Re-enter your password',
+                    labelText: 'confirm_password'.tr(),
+                    hintText: 'auth_reenter_password'.tr(),
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
                       icon: Icon(
@@ -258,10 +259,10 @@ class _SignupPageState extends State<SignupPage> {
                   obscureText: !_showConfirmPassword,
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please confirm your password';
+                      return 'auth_confirm_password_required'.tr();
                     }
                     if (value != _passwordController.text) {
-                      return 'Passwords do not match';
+                      return 'auth_passwords_not_match'.tr();
                     }
                     return null;
                   },
@@ -284,7 +285,7 @@ class _SignupPageState extends State<SignupPage> {
                         padding: const EdgeInsets.only(top: 12),
                         child: Wrap(
                           children: [
-                            const Text('I agree to the '),
+                            Text('auth_i_agree_to'.tr()),
                             GestureDetector(
                               onTap: () {
                                 Navigator.push(
@@ -295,7 +296,7 @@ class _SignupPageState extends State<SignupPage> {
                                 );
                               },
                               child: Text(
-                                'Terms & Conditions',
+                                'terms_conditions'.tr(),
                                 style: TextStyle(
                                   color: theme.colorScheme.primary,
                                   fontWeight: FontWeight.w600,
@@ -303,7 +304,7 @@ class _SignupPageState extends State<SignupPage> {
                                 ),
                               ),
                             ),
-                            const Text(' and '),
+                            Text('auth_and'.tr()),
                             GestureDetector(
                               onTap: () {
                                 Navigator.push(
@@ -314,7 +315,7 @@ class _SignupPageState extends State<SignupPage> {
                                 );
                               },
                               child: Text(
-                                'Privacy Policy',
+                                'privacy_policy'.tr(),
                                 style: TextStyle(
                                   color: theme.colorScheme.primary,
                                   fontWeight: FontWeight.w600,
@@ -351,8 +352,8 @@ class _SignupPageState extends State<SignupPage> {
                             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           ),
                         )
-                      : const Text(
-                          'Sign Up',
+                        : Text(
+                          'signup'.tr(),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -367,7 +368,7 @@ class _SignupPageState extends State<SignupPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      'Already have an account? ',
+                      'already_have_account'.tr(),
                       style: TextStyle(color: Colors.grey[600]),
                     ),
                     GestureDetector(
@@ -375,7 +376,7 @@ class _SignupPageState extends State<SignupPage> {
                         context.go(LoginPage.routePath);
                       },
                       child: Text(
-                        'Login',
+                        'login'.tr(),
                         style: TextStyle(
                           color: theme.colorScheme.primary,
                           fontWeight: FontWeight.w600,
