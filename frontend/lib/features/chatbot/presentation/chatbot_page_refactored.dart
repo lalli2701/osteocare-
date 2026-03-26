@@ -3,6 +3,7 @@ import 'package:easy_localization/easy_localization.dart';
 
 import '../../../core/auth/user_session.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/services/dynamic_translation_service.dart';
 import '../../../core/services/tts_service.dart';
 import '../models/message.dart';
 import '../widgets/message_bubble.dart';
@@ -92,6 +93,7 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
     } catch (e) {
       // Fallback to on-device reply if backend is unavailable
       reply = _buildBotReply(text);
+      reply = await DynamicTranslationService.instance.translate(reply);
     }
 
     if (!mounted) return;
@@ -196,7 +198,7 @@ class _ChatbotPageRefactoredState extends State<ChatbotPageRefactored> {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF14B8A6),
+        backgroundColor: const Color(0xFF2F80ED),
         elevation: 4,
         title: Row(
           children: [

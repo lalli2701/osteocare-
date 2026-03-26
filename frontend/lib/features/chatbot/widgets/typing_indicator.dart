@@ -55,7 +55,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
         height: 8,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         decoration: BoxDecoration(
-          color: widget.color ?? const Color(0xFF14B8A6),
+          color: widget.color ?? const Color(0xFF2F80ED),
           borderRadius: BorderRadius.circular(4),
         ),
       ),

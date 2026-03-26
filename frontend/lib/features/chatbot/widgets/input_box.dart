@@ -82,6 +82,8 @@ class _InputBoxState extends State<InputBox> {
                 controller: _controller,
                 enabled: widget.isEnabled,
                 maxLines: 1,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _handleSend(),
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   hintText: widget.hintText,
@@ -106,7 +108,7 @@ class _InputBoxState extends State<InputBox> {
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(25),
                     borderSide: const BorderSide(
-                      color: Color(0xFF14B8A6),
+                      color: Color(0xFF2F80ED),
                       width: 2,
                     ),
                   ),
@@ -136,7 +138,7 @@ class _InputBoxState extends State<InputBox> {
               icon: Icon(
                 Icons.send,
                 color: _hasText && widget.isEnabled
-                    ? const Color(0xFF14B8A6)
+                    ? const Color(0xFF2F80ED)
                     : Colors.grey[400],
                 size: 22,
               ),

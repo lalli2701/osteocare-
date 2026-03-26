@@ -25,7 +25,7 @@ class MessageBubble extends StatelessWidget {
   /// Gets the background color for the bubble
   Color get _bubbleColor {
     if (message.isUser) {
-      return const Color(0xFF14B8A6); // Teal for user messages
+      return const Color(0xFF2F80ED); // Blue for user messages
     } else {
       return Colors.grey[300]!; // Light gray for bot messages
     }

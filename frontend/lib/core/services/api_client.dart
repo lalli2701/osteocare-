@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 
+import 'dynamic_translation_service.dart';
+
 class ApiClient {
   ApiClient({Dio? dio}) : _dio = dio ?? Dio();
 
@@ -36,7 +38,8 @@ class ApiClient {
       throw Exception('Unexpected chatbot response');
     }
 
-    return data['reply'] as String;
+    final reply = data['reply'] as String;
+    return DynamicTranslationService.instance.translate(reply);
   }
 }
 

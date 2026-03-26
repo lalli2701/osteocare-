@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -10,7 +11,9 @@ import '../presentation/result_page.dart';
 import '../presentation/voice_question_widget.dart';
 import '../../../core/auth/auth_service.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/local_survey_store.dart';
 import '../../../core/services/survey_service.dart';
+import '../../../core/services/survey_sync_service.dart';
 import '../../../core/services/voice_service.dart';
 
 class SurveyPage extends StatefulWidget {
@@ -32,6 +35,8 @@ class _SurveyPageState extends State<SurveyPage> {
   bool _isSubmitting = false;
   String? _errorMessage;
   bool _voiceEnabled = true;
+  late Locale _currentLocale;
+  bool _localeInitialized = false;
 
   static const _riskLevelKey = 'risk_level';
   static const _nextReassessmentDateKey = 'next_reassessment_date';
@@ -41,7 +46,22 @@ class _SurveyPageState extends State<SurveyPage> {
   @override
   void initState() {
     super.initState();
-    _initializeSurvey();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newLocale = context.locale;
+    if (!_localeInitialized) {
+      _currentLocale = newLocale;
+      _localeInitialized = true;
+      _initializeSurvey();
+      return;
+    }
+    if (newLocale != _currentLocale) {
+      _currentLocale = newLocale;
+      _loadQuestions();
+    }
   }
 
   Future<void> _initializeSurvey() async {
@@ -49,6 +69,9 @@ class _SurveyPageState extends State<SurveyPage> {
       // Initialize services
       _surveyService = SurveyService();
       await VoiceService().initialize();
+
+      final userId = await SurveySyncService.instance.resolveEffectiveUserId();
+      await SurveySyncService.instance.syncPendingSurveys(userId: userId);
 
       // Load voice preference
       final prefs = await SharedPreferences.getInstance();
@@ -148,16 +171,21 @@ class _SurveyPageState extends State<SurveyPage> {
 
   /// Handle voice answer confirmation
   void _handleVoiceAnswer(String fieldName, dynamic answer) {
-    setState(() {
-      _formData[fieldName] = answer;
-    });
-
-    // Auto-advance to next question for yes_no answers
     final question =
         _questions.firstWhere((q) => q.fieldName == fieldName, orElse: () {
       return _questions[_currentQuestionIndex];
     });
 
+    dynamic normalized = answer;
+    if (question.type == 'yes_no') {
+      normalized = _normalizeYesNoForField(fieldName, answer);
+    }
+
+    setState(() {
+      _formData[fieldName] = normalized;
+    });
+
+    // Auto-advance to next question for yes_no answers
     if (question.type == 'yes_no' && _isCurrentQuestionComplete()) {
       // Slight delay to show confirmation
       Future.delayed(const Duration(milliseconds: 800), () {
@@ -168,22 +196,116 @@ class _SurveyPageState extends State<SurveyPage> {
     }
   }
 
+  dynamic _normalizeYesNoForField(String fieldName, dynamic value) {
+    if (value == null) {
+      return '';
+    }
+
+    if (value is bool) {
+      return fieldName == 'arthritis' ? value : (value ? 'Yes' : 'No');
+    }
+
+    if (value is num) {
+      if (value == 1) {
+        return fieldName == 'arthritis' ? true : 'Yes';
+      }
+      if (value == 0) {
+        return fieldName == 'arthritis' ? false : 'No';
+      }
+    }
+
+    final raw = value.toString().trim().toLowerCase();
+    if (raw.isEmpty || raw == 'null' || raw == 'none' || raw == 'recognitionresult.unknown') {
+      return '';
+    }
+
+    const yesValues = {
+      'yes',
+      'y',
+      'true',
+      '1',
+      'recognitionresult.yes',
+      'affirmative',
+      'correct',
+      'right',
+    };
+    const noValues = {
+      'no',
+      'n',
+      'false',
+      '0',
+      'recognitionresult.no',
+      'negative',
+    };
+
+    if (yesValues.contains(raw)) {
+      return fieldName == 'arthritis' ? true : 'Yes';
+    }
+    if (noValues.contains(raw)) {
+      return fieldName == 'arthritis' ? false : 'No';
+    }
+
+    return fieldName == 'arthritis' ? false : '';
+  }
+
+  Map<String, dynamic> _buildNormalizedSurveyData() {
+    final normalized = Map<String, dynamic>.from(_formData);
+
+    const yesNoFields = [
+      'memory_issue',
+      'mobility_climb',
+      'stand_long',
+      'activity_limited',
+      'arthritis',
+      'thyroid',
+      'lung_disease',
+      'heart_failure',
+      'smoking',
+    ];
+
+    for (final field in yesNoFields) {
+      normalized[field] = _normalizeYesNoForField(field, normalized[field]);
+    }
+
+    const optionalSelectFields = [
+      'alcohol',
+      'general_health',
+      'calcium_frequency',
+    ];
+
+    for (final field in optionalSelectFields) {
+      final value = normalized[field];
+      if (value == null) {
+        normalized[field] = '';
+      }
+    }
+
+    return normalized;
+  }
+
   Future<void> _submitSurvey() async {
     setState(() => _isSubmitting = true);
 
+    final userId = await SurveySyncService.instance.resolveEffectiveUserId();
+    final normalizedSurveyData = _buildNormalizedSurveyData();
+
     try {
+      final localRecord = await LocalSurveyStore.instance.insertSurvey(
+        userId: userId,
+        surveyData: normalizedSurveyData,
+      );
+      final localRecordId = (localRecord['id'] as num).toInt();
+      final localId = localRecord['local_id']?.toString() ?? '';
+
       // Prepare survey data for submission
       final Map<String, dynamic> surveyPayload = {
-        'survey_data': _formData,
+        'local_id': localId,
+        'timestamp': DateTime.now().toUtc().toIso8601String(),
+        'survey_data': normalizedSurveyData,
       };
 
-      final userData = await AuthService.instance.getUserData();
-      final userId = (userData?['id']?.toString().trim().isNotEmpty ?? false)
-          ? userData!['id'].toString()
-          : 'user_${DateTime.now().millisecondsSinceEpoch}';
-
       final response = await http.post(
-        Uri.parse('http://localhost:5000/survey/submit'),
+        Uri.parse('${AuthService.baseUrl}/survey/submit'),
         headers: {
           'Content-Type': 'application/json',
           'X-User-Id': userId,
@@ -196,7 +318,12 @@ class _SurveyPageState extends State<SurveyPage> {
       );
 
       if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
+        final result = Map<String, dynamic>.from(jsonDecode(response.body));
+        await LocalSurveyStore.instance.markSynced(
+          id: localRecordId,
+          result: result,
+        );
+        await SurveySyncService.instance.syncPendingSurveys(userId: userId);
         await _persistAndScheduleReassessment(result);
         if (mounted) {
           context.go(ResultPage.routePath, extra: result);
@@ -214,7 +341,11 @@ class _SurveyPageState extends State<SurveyPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error submitting survey: ${e.toString()}')),
+          SnackBar(
+            content: Text(
+              'Saved offline. Data will sync automatically when internet is available. (${e.toString()})',
+            ),
+          ),
         );
         setState(() => _isSubmitting = false);
       }
@@ -354,7 +485,7 @@ class _SurveyPageState extends State<SurveyPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              question.helpText ?? '',
+              question.helpText,
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             if (noteText != null) ...[
@@ -447,7 +578,7 @@ class _SurveyPageState extends State<SurveyPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              question.helpText ?? '',
+              question.helpText,
               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
