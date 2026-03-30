@@ -38,7 +38,6 @@ enum AppLanguage {
 class LanguageService {
   static const String _languageKey = 'preferred_language';
   static const String _versionKey = 'translation_cache_version';
-  static const String _backendUrl = 'http://172.201.252.146:5000';
 
   static Future<void> changeLanguage(
     BuildContext context,
@@ -84,7 +83,7 @@ class LanguageService {
       if (token == null) return;
 
       final response = await http.post(
-        Uri.parse('$_backendUrl/api/user/preferences'),
+        Uri.parse('${AuthService.baseUrl}/api/user/preferences'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -145,7 +144,7 @@ class LanguageService {
       if (token == null) return;
 
       final response = await http.get(
-        Uri.parse('$_backendUrl/api/dashboard'),
+        Uri.parse('${AuthService.baseUrl}/api/dashboard'),
         headers: {
           'Authorization': 'Bearer $token',
         },

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import '../config/api_config.dart';
 import 'user_session.dart';
 
 class AuthService {
@@ -9,8 +10,7 @@ class AuthService {
 
   static final AuthService instance = AuthService._internal();
 
-  // Backend API base URL reachable by physical devices.
-  static const String baseUrl = 'http://172.201.252.146:5000';
+  static const String baseUrl = ApiConfig.baseUrl;
   
   final _storage = const FlutterSecureStorage();
   static const _tokenKey = 'auth_token';

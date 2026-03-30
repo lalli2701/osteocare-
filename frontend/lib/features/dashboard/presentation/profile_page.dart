@@ -71,7 +71,7 @@ class _ProfilePageState extends State<ProfilePage> {
       final token = await _authService.getToken();
       if (token != null) {
         await http.put(
-          Uri.parse('http://172.201.252.146:5000/api/user/preferences'),
+          Uri.parse('${AuthService.baseUrl}/api/user/preferences'),
           headers: {
             'Authorization': 'Bearer $token',
             'Content-Type': 'application/json',
@@ -112,7 +112,7 @@ class _ProfilePageState extends State<ProfilePage> {
       }
 
       final response = await http.get(
-        Uri.parse('http://172.201.252.146:5000/api/user/profile'),
+        Uri.parse('${AuthService.baseUrl}/api/user/profile'),
         headers: {
           'Authorization': 'Bearer $token',
         },

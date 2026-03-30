@@ -17,7 +17,6 @@ DATA_DIR = ROOT / "data"
 # Model-B artifacts live under backend/artifacts to match the serving app
 ARTIFACTS_DIR = BACKEND_ROOT / "artifacts"
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-
 MODEL_PATH = ARTIFACTS_DIR / "calibrated_model.pkl"
 FEATURES_PATH = ARTIFACTS_DIR / "feature_order.json"
 

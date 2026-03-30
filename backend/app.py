@@ -19,7 +19,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from flask import Flask, jsonify, request, g
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -138,6 +138,12 @@ GOOGLE_TRANSLATE_CACHE_TTL_SECONDS = int(os.environ.get("GOOGLE_TRANSLATE_CACHE_
 GOOGLE_TRANSLATE_CACHE_MAX_ENTRIES = int(os.environ.get("GOOGLE_TRANSLATE_CACHE_MAX_ENTRIES", "5000"))
 # Set default dev API key for easy development
 API_KEY = os.environ.get("API_KEY", "dev-key")
+
+DAILY_PLAN_TASKS = [
+    "Calcium intake (milk or equivalent)",
+    "20 minutes sunlight",
+    "Exercise / walk",
+]
 
 app = Flask(__name__)
 CORS(app)
@@ -564,10 +570,12 @@ def _get_mongo_collection():
     if _mongo_collection is not None:
         return _mongo_collection
     if not MONGO_URI or MongoClient is None:
+        app.logger.warning("🔴 MongoDB UNAVAILABLE: MONGO_URI=%s, MongoClient=%s", MONGO_URI or "NOT_SET", MongoClient)
         return None
 
     try:
         # Initialize with connection pool sizing to prevent exhaustion
+        app.logger.info("🔗 Connecting to MongoDB at URI: %s", MONGO_URI[:50] + "..." if len(MONGO_URI) > 50 else MONGO_URI)
         _mongo_client = MongoClient(
             MONGO_URI, 
             serverSelectionTimeoutMS=2000,
@@ -576,6 +584,8 @@ def _get_mongo_collection():
         )
         # Trigger an early connectivity check so failures are visible in logs.
         _mongo_client.admin.command("ping")
+        app.logger.info("✅ MongoDB connection successful")
+        app.logger.info("✅ MongoDB connection successful")
         _mongo_collection = _mongo_client[MONGO_DB_NAME][MONGO_COLLECTION_NAME]
         _mongo_collection.create_index(
             [("user_id", 1), ("local_id", 1)],
@@ -589,13 +599,13 @@ def _get_mongo_collection():
             name="idx_sync_retention_ttl",
         )
         app.logger.info(
-            "MongoDB connected to db=%s collection=%s",
+            "✅ MongoDB collection ready: db=%s collection=%s",
             MONGO_DB_NAME,
             MONGO_COLLECTION_NAME,
         )
         return _mongo_collection
     except Exception as exc:
-        app.logger.warning("MongoDB unavailable: %s", exc)
+        app.logger.error("❌ MongoDB connection FAILED: %s", exc)
         _mongo_client = None
         _mongo_collection = None
         return None
@@ -1069,7 +1079,22 @@ def _log_mongo_startup_status():
 def _upsert_mongo_submission(user_id: str, local_id: str | None, document: dict) -> bool:
     collection = _get_mongo_collection()
     if collection is None:
-        return False
+        # 🔴 CRITICAL FIX: Queue write when MongoDB is unavailable
+        app.logger.warning("⚠️ MongoDB unavailable → writing survey to degraded queue")
+        
+        # Queue the submission for later replay when Mongo recovers
+        success = _queue_write_operation(
+            operation_type="insert",
+            collection_name="survey_submissions",
+            document=document
+        )
+        
+        if success:
+            app.logger.info("✅ Survey queued in degraded mode for user_id=%s", user_id)
+            return True
+        else:
+            app.logger.error("❌ Failed to queue survey (degraded queue full or error)")
+            return False
 
     try:
         now_dt = datetime.utcnow()
@@ -2125,24 +2150,673 @@ def _compute_next_reassessment_date(risk_level: str) -> str:
     return next_date.strftime("%Y-%m-%d")
 
 
-def _generate_tasks(form_entry: dict) -> list[str]:
-    tasks: list[str] = []
+def _is_yes_answer(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"yes", "true", "1"}
+
+
+def _user_language_code(user_id: str) -> str:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT preferred_language FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+    finally:
+        conn.close()
+
+    pref = str(row[0]).strip().lower() if row and row[0] is not None else "english"
+    if pref == "hindi":
+        return "hi"
+    if pref == "telugu":
+        return "te"
+    return "en"
+
+
+def _derive_reminder_tags(form_entry: dict, risk_level: str) -> list[str]:
+    tags: list[str] = []
+
+    calcium_frequency = str(form_entry.get("calcium_frequency", "")).strip().lower()
+    if calcium_frequency in {"rarely", "sometimes", "none"}:
+        tags.extend(["calcium_low", "diet_poor", "calcium_sources", "vitamin_d_low"])
+
+    if _is_yes_answer(form_entry.get("smoking")):
+        tags.append("smoking")
+
+    alcohol = str(form_entry.get("alcohol", "")).strip().lower()
+    if alcohol in {"occasionally", "frequently", "daily", "weekly"}:
+        tags.append("alcohol")
+
+    if _is_yes_answer(form_entry.get("activity_limited")):
+        tags.extend(["exercise_low", "mobility_low", "walking", "strength_training"])
+    if _is_yes_answer(form_entry.get("mobility_climb")):
+        tags.extend(["mobility_low", "balance_low", "stairs_caution", "assist_device"])
+    if _is_yes_answer(form_entry.get("stand_long")):
+        tags.extend(["posture_bad", "sitting_long", "breaks", "stretching"])
+    if _is_yes_answer(form_entry.get("memory_issue")):
+        tags.extend(["symptom_tracking", "weakness", "social_activity"])
+
+    if _is_yes_answer(form_entry.get("arthritis")):
+        tags.extend(["pain_monitoring", "physiotherapy", "joint_stiffness", "pain_increase"])
+    if _is_yes_answer(form_entry.get("thyroid")):
+        tags.extend(["doctor_visit", "followup"])
+    if _is_yes_answer(form_entry.get("lung_disease")):
+        tags.extend(["doctor_visit", "followup"])
+    if _is_yes_answer(form_entry.get("heart_failure")):
+        tags.extend(["doctor_visit", "followup"])
+
+    general_health = str(form_entry.get("general_health", "")).strip().lower()
+    if general_health in {"poor", "fair"}:
+        tags.extend(["symptom_tracking", "pain_monitoring", "fatigue", "weakness"])
+
+    age_val = int(float(form_entry.get("age", 0) or 0))
+    if age_val >= 51:
+        tags.extend(["fall_risk", "footwear", "lighting", "home_safety", "slippery_floor", "stairs_caution", "social_activity"])
+
     bmi = _compute_bmi(form_entry)
-    if bmi is not None and bmi < 18.5:
-        tasks.append("Increase protein and calorie intake daily")
+    if bmi is not None:
+        if bmi < 18.5:
+            tags.extend(["protein_low", "protein_sources"])
+        if bmi >= 27:
+            tags.append("weight_monitoring")
 
-    alcohol = str(form_entry.get("alcohol", "")).lower()
-    if alcohol in {"occasionally", "frequently"}:
-        tasks.append("Limit alcohol intake to protect bone strength")
+    # Core reminders to keep coverage broad without showing everything.
+    tags.extend([
+        "sunlight_low",
+        "sunlight_consistency",
+        "hydration_low",
+        "hydration_reminder",
+        "sleep_schedule",
+        "routine",
+        "activity",
+        "early_sleep",
+    ])
 
-    smoking = str(form_entry.get("smoking", "")).lower()
-    if smoking == "yes":
-        tasks.append("Stop smoking to prevent further bone loss")
+    risk_lower = risk_level.strip().lower()
+    if risk_lower == "high":
+        tags.extend([
+            "doctor_visit",
+            "medication",
+            "supplements",
+            "supervised_exercise",
+            "heavy_lifting",
+            "sudden_movement",
+            "assist_device",
+            "emergency_contact",
+            "followup",
+            "pain_increase",
+            "caregiver_support",
+        ])
+    elif risk_lower == "moderate":
+        tags.extend(["doctor_visit", "fall_risk", "exercise_low", "bone_density_test", "slippery_floor"])
+    else:
+        tags.extend(["exercise_low", "walking", "strength_training"])
 
-    if str(form_entry.get("activity_limited", "")).lower() == "yes" or str(form_entry.get("mobility_climb", "")).lower() == "yes":
-        tasks.append("Perform 20–30 min weight-bearing exercise daily")
+    # Preserve order while removing duplicates.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for tag in tags:
+        clean = str(tag).strip().lower()
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        deduped.append(clean)
+    return deduped
 
-    return tasks
+
+PRIORITY_SCORE = {
+    "high": 3,
+    "medium": 2,
+    "low": 1,
+}
+
+TIME_WEIGHT = {
+    "exact": 1.5,
+    "neutral": 1.0,
+    "mismatch": 0.8,
+}
+
+CORE_FALLBACK = [
+    "exercise_low",
+    "sleep_poor",
+    "hydration_low",
+]
+
+SHAP_TAG_MAPPING = {
+    "smoking": ["smoking"],
+    "calcium_intake": ["calcium_low", "calcium_sources"],
+    "calcium_frequency": ["calcium_low", "calcium_sources"],
+    "exercise": ["exercise_low", "walking", "strength_training"],
+    "activity": ["activity", "exercise_low"],
+    "mobility": ["mobility_low", "balance_low"],
+    "sunlight": ["sunlight_low", "sunlight_consistency", "vitamin_d_low"],
+    "sleep": ["sleep_poor", "sleep_schedule", "early_sleep"],
+    "hydration": ["hydration_low", "hydration_reminder"],
+    "alcohol": ["alcohol"],
+    "pain": ["pain_monitoring", "pain_increase"],
+    "fall_risk": ["fall_risk", "slippery_floor", "home_safety"],
+}
+
+
+def _get_current_time_slot() -> str:
+    hour = datetime.now().hour
+    if 5 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 17:
+        return "afternoon"
+    return "evening"
+
+
+def _normalize_shap_values(raw_shap_values) -> dict[str, float]:
+    if not isinstance(raw_shap_values, dict):
+        return {}
+
+    normalized: dict[str, float] = {}
+    for key, value in raw_shap_values.items():
+        feature = str(key).strip().lower()
+        if not feature:
+            continue
+        try:
+            score = float(value)
+        except Exception:
+            continue
+        normalized[feature] = score
+    return normalized
+
+
+def _map_shap_to_tag_scores(shap_values: dict[str, float]) -> dict[str, float]:
+    tag_scores: dict[str, float] = {}
+    for feature, raw_score in shap_values.items():
+        # Positive SHAP values increase risk and should drive preventive reminders.
+        if raw_score <= 0:
+            continue
+
+        mapped_tags = SHAP_TAG_MAPPING.get(feature, [])
+        if not mapped_tags and feature in {"thyroid", "lung_disease", "heart_failure"}:
+            mapped_tags = ["doctor_visit", "followup"]
+
+        for tag in mapped_tags:
+            previous = float(tag_scores.get(tag, 0.0))
+            if raw_score > previous:
+                tag_scores[tag] = raw_score
+    return tag_scores
+
+
+def _normalize_tag_scores(tag_scores: dict[str, float]) -> dict[str, float]:
+    total = sum(abs(float(v)) for v in tag_scores.values()) or 1.0
+    return {
+        str(tag).strip().lower(): float(value) / total
+        for tag, value in tag_scores.items()
+        if str(tag).strip()
+    }
+
+
+def _derive_shap_values_from_form(form_entry: dict) -> dict[str, float]:
+    estimated: dict[str, float] = {}
+
+    if _is_yes_answer(form_entry.get("smoking")):
+        estimated["smoking"] = 0.85
+
+    calcium_frequency = str(form_entry.get("calcium_frequency", "")).strip().lower()
+    if calcium_frequency == "rarely":
+        estimated["calcium_intake"] = 0.60
+    elif calcium_frequency == "sometimes":
+        estimated["calcium_intake"] = 0.35
+
+    if _is_yes_answer(form_entry.get("activity_limited")) or _is_yes_answer(form_entry.get("mobility_climb")):
+        estimated["exercise"] = 0.45
+        estimated["mobility"] = 0.30
+
+    if _is_yes_answer(form_entry.get("arthritis")):
+        estimated["pain"] = 0.35
+
+    alcohol = str(form_entry.get("alcohol", "")).strip().lower()
+    if alcohol in {"occasionally", "frequently", "daily", "weekly"}:
+        estimated["alcohol"] = 0.25
+
+    age_val = int(float(form_entry.get("age", 0) or 0))
+    if age_val >= 60:
+        estimated["fall_risk"] = 0.30
+
+    return estimated
+
+
+def _fetch_reminder_rows(tags: list[str], risk_level: str, lang_code: str) -> list[dict]:
+    if not tags:
+        return []
+
+    risk_lower = risk_level.strip().lower()
+    text_col = "en"
+    if lang_code == "te":
+        text_col = "te"
+    elif lang_code == "hi":
+        text_col = "hi"
+
+    placeholders = ",".join(["?"] * len(tags))
+    query = f"""
+        SELECT tag, priority, time_slot, {text_col} AS reminder_text
+        FROM reminders
+        WHERE tag IN ({placeholders})
+          AND (lower(risk_level) = 'all' OR lower(risk_level) = ?)
+    """
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(query, [*tags, risk_lower])
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    reminders: list[dict] = []
+    for row in rows:
+        text = str(row["reminder_text"] or "").strip()
+        if not text:
+            continue
+        reminders.append({
+            "tag": str(row["tag"] or "").strip().lower(),
+            "priority": str(row["priority"] or "low").strip().lower(),
+            "time_slot": str(row["time_slot"] or "any").strip().lower(),
+            "text": text,
+            "category": _reminder_category(str(row["tag"] or "")),
+        })
+    return reminders
+
+
+def _reminder_category(tag: str) -> str:
+    value = str(tag).strip().lower()
+    if value.startswith(("calcium", "vitamin", "protein", "diet", "fruit", "hydration", "salt", "junk", "caffeine")):
+        return "nutrition"
+    if value.startswith(("exercise", "walking", "strength", "stretch", "mobility", "balance", "physio", "posture", "sitting")):
+        return "movement"
+    if value.startswith(("sleep", "early_sleep", "screen_time")):
+        return "sleep"
+    if value.startswith(("doctor", "medication", "followup", "bone_density", "emergency", "supplements")):
+        return "medical"
+    if value.startswith(("fall", "slippery", "stairs", "footwear", "grab", "lighting", "home_safety", "assist")):
+        return "safety"
+    if value.startswith(("symptom", "pain", "weakness", "fatigue", "social", "caregiver")):
+        return "monitoring"
+    return "general"
+
+
+def _apply_time_bonus(reminders: list[dict], current_slot: str) -> None:
+    for reminder in reminders:
+        reminder_slot = str(reminder.get("time_slot", "any")).strip().lower()
+        if reminder_slot == current_slot:
+            reminder["time_bonus"] = TIME_WEIGHT["exact"]
+        elif reminder_slot == "any":
+            reminder["time_bonus"] = TIME_WEIGHT["neutral"]
+        else:
+            reminder["time_bonus"] = TIME_WEIGHT["mismatch"]
+
+
+def _compute_reminder_score(reminder: dict, tag_scores: dict[str, float]) -> float:
+    shap_score = float(tag_scores.get(str(reminder.get("tag", "")).strip().lower(), 0.0))
+    db_score = float(PRIORITY_SCORE.get(str(reminder.get("priority", "low")).strip().lower(), 1.0))
+    time_bonus = float(reminder.get("time_bonus", 1.0) or 1.0)
+    return (shap_score * 2.0 + db_score) * time_bonus
+
+
+def _apply_smart_fallback(reminders: list[dict], existing_tags: set[str], risk_level: str, lang_code: str) -> list[dict]:
+    needed = 3 - len(reminders)
+    if needed <= 0:
+        return reminders
+
+    fallback_rows = _fetch_reminder_rows(CORE_FALLBACK, risk_level, lang_code)
+    for row in fallback_rows:
+        tag = str(row.get("tag", "")).strip().lower()
+        if not tag or tag in existing_tags:
+            continue
+        reminders.append(row)
+        existing_tags.add(tag)
+        needed -= 1
+        if needed <= 0:
+            break
+    return reminders
+
+
+def _extract_top_factors(tag_scores: dict[str, float], limit: int = 2) -> list[str]:
+    ranked = sorted(
+        ((str(tag).strip().lower(), float(score)) for tag, score in tag_scores.items()),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    return [tag for tag, score in ranked[: max(0, limit)] if score > 0]
+
+
+def _group_tasks_by_time(reminder_rows: list[dict]) -> dict[str, list[str]]:
+    slot_order = ["morning", "afternoon", "evening", "night", "weekly", "any"]
+    grouped: dict[str, list[str]] = {}
+    for slot in slot_order:
+        values = [
+            str(item.get("text", "")).strip()
+            for item in reminder_rows
+            if str(item.get("time_slot", "")).strip().lower() == slot
+            and str(item.get("text", "")).strip()
+        ]
+        if values:
+            grouped[slot] = values
+    return grouped
+
+
+def _action_type_for_category(category: str) -> str:
+    value = str(category).strip().lower()
+    if value == "medical":
+        return "medical"
+    if value == "safety":
+        return "safety"
+    return "habit"
+
+
+def _group_tasks_by_type(reminder_rows: list[dict]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {
+        "habit": [],
+        "medical": [],
+        "safety": [],
+    }
+    for item in reminder_rows:
+        text = str(item.get("text", "")).strip()
+        if not text:
+            continue
+        action_type = _action_type_for_category(item.get("category", "general"))
+        grouped[action_type].append(text)
+
+    return {key: value for key, value in grouped.items() if value}
+
+
+def _urgency_from_risk(risk_level: str) -> str:
+    value = str(risk_level).strip().lower()
+    if value == "high":
+        return "high"
+    if value == "moderate":
+        return "medium"
+    return "low"
+
+
+def _get_max_shap(shap_values: dict[str, float] | None) -> float:
+    if not isinstance(shap_values, dict) or not shap_values:
+        return 0.0
+    values = [abs(float(v)) for v in shap_values.values()]
+    return max(values) if values else 0.0
+
+
+def _compute_confidence(probability: float | None, shap_values: dict[str, float] | None) -> float:
+    max_shap = _get_max_shap(shap_values)
+    has_prob = isinstance(probability, (int, float))
+    has_shap = bool(shap_values)
+
+    if not has_prob and not has_shap:
+        return 0.0
+    if has_prob and not has_shap:
+        return round(max(0.0, min(1.0, float(probability))), 2)
+    if has_shap and not has_prob:
+        return round(max(0.0, min(1.0, max_shap)), 2)
+
+    confidence = 0.7 * float(probability) + 0.3 * max_shap
+    return round(max(0.0, min(1.0, confidence)), 2)
+
+
+def _get_confidence_label(confidence: float) -> str:
+    if confidence >= 0.8:
+        return "High"
+    if confidence >= 0.6:
+        return "Moderate"
+    return "Low"
+
+
+def _humanize_factor_tag(tag: str) -> str:
+    factor = str(tag).strip().lower()
+    aliases = {
+        "calcium_low": "low calcium intake",
+        "exercise_low": "low physical activity",
+        "smoking": "smoking habit",
+        "sunlight_low": "lack of sunlight",
+        "sleep_poor": "poor sleep quality",
+    }
+    if factor in aliases:
+        return aliases[factor]
+    return factor.replace("_", " ")
+
+
+def _build_confidence_reason(top_factors: list[str]) -> str:
+    if len(top_factors) >= 2:
+        return (
+            f"Main factors: {_humanize_factor_tag(top_factors[0])} "
+            f"and {_humanize_factor_tag(top_factors[1])}."
+        )
+    if top_factors:
+        return f"Main factor: {_humanize_factor_tag(top_factors[0])}."
+    return "Multiple factors influence your result."
+
+
+def _top_factors_with_weight(raw_tag_scores: dict[str, float], limit: int = 3) -> list[dict]:
+    ranked = sorted(
+        ((str(tag).strip().lower(), abs(float(score))) for tag, score in raw_tag_scores.items()),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    factors = [
+        {"factor": tag, "impact": round(score, 2)}
+        for tag, score in ranked[: max(0, limit)]
+        if score > 0
+    ]
+
+    max_impact = max((float(item.get("impact", 0.0)) for item in factors), default=0.0) or 1.0
+    for item in factors:
+        item["normalized"] = round(float(item.get("impact", 0.0)) / max_impact, 2)
+
+    return factors
+
+
+def _fallback_task_for_factor(factor: str, risk_level: str = "") -> str:
+    factor_key = str(factor).strip().lower()
+    risk = str(risk_level).strip().lower()
+
+    if factor_key == "smoking":
+        if risk == "high":
+            return "Stop smoking immediately to reduce your bone risk"
+        return "Reducing smoking can improve your bone health"
+
+    if factor_key == "calcium_low":
+        return "Increase calcium intake through diet or supplements"
+
+    fallback_map = {
+        "smoking": "Stop smoking immediately",
+        "calcium_low": "Start your day with a calcium-rich breakfast",
+        "exercise_low": "Do at least 30 minutes of exercise",
+        "sunlight_low": "Get 20 minutes of sunlight daily",
+        "sleep_poor": "Ensure 7-8 hours of sleep",
+    }
+    return fallback_map.get(factor_key, "Follow the recommended daily plan")
+
+
+def _contextualize_factor_task(factor: str, task_text: str, risk_level: str) -> str:
+    factor_key = str(factor).strip().lower()
+    text = str(task_text).strip()
+    risk = str(risk_level).strip().lower()
+    if not text:
+        return _fallback_task_for_factor(factor_key, risk_level=risk)
+
+    if factor_key == "smoking":
+        if risk == "high":
+            return "Stop smoking immediately to reduce your bone risk"
+        return "Reducing smoking can improve your bone health"
+
+    if factor_key == "calcium_low":
+        return "Increase calcium intake through diet or supplements"
+
+    return text
+
+
+def _factor_task_link(top_factors: list[str], reminder_rows: list[dict], risk_level: str) -> dict[str, str]:
+    link: dict[str, str] = {}
+    tag_to_task = {
+        str(item.get("tag", "")).strip().lower(): str(item.get("text", "")).strip()
+        for item in reminder_rows
+        if str(item.get("tag", "")).strip() and str(item.get("text", "")).strip()
+    }
+
+    for factor in top_factors:
+        factor_key = str(factor).strip().lower()
+        link[factor_key] = _contextualize_factor_task(
+            factor_key,
+            tag_to_task.get(factor_key, ""),
+            risk_level,
+        )
+    return link
+
+
+def _get_confidence_note(risk_level: str, confidence: float) -> str:
+    risk = str(risk_level).strip().lower()
+    if risk == "high" and confidence < 0.6:
+        return "Risk detected but with moderate certainty"
+    if risk == "high" and confidence >= 0.6:
+        return "Risk detected with high certainty"
+    if risk == "low" and confidence > 0.7:
+        return "Low risk confirmed with high confidence"
+    if risk == "moderate" and confidence < 0.6:
+        return "Moderate risk detected with limited certainty"
+    return "Current inputs provide limited predictive certainty."
+
+
+def _get_confidence_band(confidence: float) -> str:
+    if confidence >= 0.85:
+        return "Very High"
+    if confidence >= 0.7:
+        return "High"
+    if confidence >= 0.55:
+        return "Moderate"
+    return "Low"
+
+
+def _generate_tasks_bundle(
+    form_entry: dict,
+    user_id: str,
+    risk_level: str,
+    shap_values: dict | None = None,
+    current_slot: str | None = None,
+    probability: float | None = None,
+) -> dict:
+    tags = _derive_reminder_tags(form_entry, risk_level)
+    lang_code = _user_language_code(user_id)
+    effective_slot = (current_slot or _get_current_time_slot()).strip().lower()
+
+    normalized_shap = _normalize_shap_values(shap_values)
+    if not normalized_shap:
+        normalized_shap = _derive_shap_values_from_form(form_entry)
+
+    raw_tag_scores = _map_shap_to_tag_scores(normalized_shap)
+    tag_scores = _normalize_tag_scores(raw_tag_scores)
+    top_factors = _extract_top_factors(tag_scores)
+    top_factors_with_weight = _top_factors_with_weight(raw_tag_scores)
+    provided_shap = _normalize_shap_values(shap_values) if isinstance(shap_values, dict) else {}
+    confidence = _compute_confidence(probability, provided_shap)
+    confidence_label = _get_confidence_label(confidence)
+    confidence_band = _get_confidence_band(confidence)
+    confidence_reason = _build_confidence_reason(top_factors)
+    confidence_note = _get_confidence_note(risk_level, confidence)
+
+    reminder_rows = _fetch_reminder_rows(tags, risk_level, lang_code)
+    _apply_time_bonus(reminder_rows, effective_slot)
+
+    for reminder in reminder_rows:
+        reminder["score"] = _compute_reminder_score(reminder, tag_scores)
+
+    reminder_rows.sort(
+        key=lambda reminder: (
+            float(reminder.get("score", 0.0)),
+            float(PRIORITY_SCORE.get(str(reminder.get("priority", "low")).strip().lower(), 1.0)),
+        ),
+        reverse=True,
+    )
+
+    picked_rows: list[dict] = []
+    seen_text: set[str] = set()
+    seen_tags: set[str] = set()
+    category_counts: dict[str, int] = {}
+    max_per_category = 2
+
+    for reminder in reminder_rows:
+        text = str(reminder.get("text", "")).strip()
+        tag = str(reminder.get("tag", "")).strip().lower()
+        category = str(reminder.get("category", "general")).strip().lower()
+        if not text or not tag:
+            continue
+        if text.lower() in seen_text or tag in seen_tags:
+            continue
+        if category_counts.get(category, 0) >= max_per_category:
+            continue
+
+        seen_text.add(text.lower())
+        seen_tags.add(tag)
+        category_counts[category] = category_counts.get(category, 0) + 1
+        picked_rows.append(reminder)
+        if len(picked_rows) >= 5:
+            break
+
+    # If diversity cap was too strict, fill remaining with next best unique reminders.
+    if len(picked_rows) < 5:
+        for reminder in reminder_rows:
+            text = str(reminder.get("text", "")).strip()
+            tag = str(reminder.get("tag", "")).strip().lower()
+            if not text or not tag:
+                continue
+            if text.lower() in seen_text or tag in seen_tags:
+                continue
+            seen_text.add(text.lower())
+            seen_tags.add(tag)
+            picked_rows.append(reminder)
+            if len(picked_rows) >= 5:
+                break
+
+    picked_rows = _apply_smart_fallback(picked_rows, seen_tags, risk_level, lang_code)
+
+    final_rows = picked_rows[:5]
+    tasks = [str(row.get("text", "")).strip() for row in final_rows if str(row.get("text", "")).strip()]
+    time_groups = _group_tasks_by_time(final_rows)
+    type_groups = _group_tasks_by_type(final_rows)
+    factor_task_link = _factor_task_link(top_factors, final_rows, risk_level)
+    primary_action = ""
+    if top_factors:
+        primary_action = factor_task_link.get(str(top_factors[0]).strip().lower(), "")
+    if not primary_action and tasks:
+        primary_action = tasks[0]
+
+    return {
+        "tasks": tasks,
+        "matched_tags": tags,
+        "top_factors": top_factors,
+        "top_factors_with_weight": top_factors_with_weight,
+        "factor_task_link": factor_task_link,
+        "primary_action": primary_action,
+        "slot_used": effective_slot,
+        "time_groups": time_groups,
+        "type_groups": type_groups,
+        "confidence": confidence,
+        "confidence_label": confidence_label,
+        "confidence_band": confidence_band,
+        "confidence_reason": confidence_reason,
+        "confidence_note": confidence_note,
+    }
+
+
+def _generate_tasks(
+    form_entry: dict,
+    user_id: str,
+    risk_level: str,
+    shap_values: dict | None = None,
+    current_slot: str | None = None,
+) -> tuple[list[str], list[str]]:
+    bundle = _generate_tasks_bundle(
+        form_entry,
+        user_id=user_id,
+        risk_level=risk_level,
+        shap_values=shap_values,
+        current_slot=current_slot,
+    )
+    return list(bundle.get("tasks", [])), list(bundle.get("matched_tags", []))
 
 
 def _medical_alerts(form_entry: dict) -> list[str]:
@@ -2451,6 +3125,12 @@ def submit_survey():
     schema_version = data.get("schema_version", 1)
     if not isinstance(schema_version, int) or schema_version < 1 or schema_version > SYNC_SCHEMA_VERSION:
         return jsonify({"error": f"Unsupported schema_version: {schema_version}"}), 400
+
+    request_time_slot = str(data.get("time_slot", "")).strip().lower()
+    if request_time_slot and request_time_slot not in {"morning", "afternoon", "evening"}:
+        request_time_slot = ""
+
+    request_shap_values = data.get("shap_values")
     
     survey_data = data["survey_data"]
     
@@ -2470,7 +3150,28 @@ def submit_survey():
         risk_level = _risk_level(prob[0])
         next_reassessment_date = _compute_next_reassessment_date(risk_level)
         message = _risk_message(risk_level)
-        tasks = _generate_tasks(survey_data)
+        reminder_bundle = _generate_tasks_bundle(
+            survey_data,
+            user_id=user_id,
+            risk_level=risk_level,
+            shap_values=request_shap_values if isinstance(request_shap_values, dict) else None,
+            current_slot=request_time_slot or None,
+            probability=float(prob[0]),
+        )
+        tasks = list(reminder_bundle.get("tasks", []))
+        matched_tags = list(reminder_bundle.get("matched_tags", []))
+        top_factors = list(reminder_bundle.get("top_factors", []))
+        top_factors_with_weight = list(reminder_bundle.get("top_factors_with_weight", []))
+        factor_task_link = dict(reminder_bundle.get("factor_task_link", {}))
+        primary_action = str(reminder_bundle.get("primary_action", ""))
+        time_groups = dict(reminder_bundle.get("time_groups", {}))
+        type_groups = dict(reminder_bundle.get("type_groups", {}))
+        confidence = float(reminder_bundle.get("confidence", 0.0))
+        confidence_label = str(reminder_bundle.get("confidence_label", _get_confidence_label(confidence)))
+        confidence_band = str(reminder_bundle.get("confidence_band", _get_confidence_band(confidence)))
+        confidence_reason = str(reminder_bundle.get("confidence_reason", ""))
+        confidence_note = str(reminder_bundle.get("confidence_note", _get_confidence_note(risk_level, confidence)))
+        urgency = _urgency_from_risk(risk_level)
         alerts = _medical_alerts(survey_data)
         
     except Exception as exc:
@@ -2483,7 +3184,20 @@ def submit_survey():
         "risk_score": int(round(float(prob[0]) * 100)),
         "next_reassessment_date": next_reassessment_date,
         "message": message,
+        "urgency": urgency,
+        "confidence": confidence,
+        "confidence_label": confidence_label,
+        "confidence_band": confidence_band,
+        "confidence_reason": confidence_reason,
+        "confidence_note": confidence_note,
         "recommended_tasks": tasks,
+        "matched_tags": matched_tags,
+        "top_factors": top_factors,
+        "top_factors_with_weight": top_factors_with_weight,
+        "factor_task_link": factor_task_link,
+        "primary_action": primary_action,
+        "time_groups": time_groups,
+        "type_groups": type_groups,
         "medical_alerts": alerts,
         "model_version": MODEL_VERSION,
         "schema_version": schema_version,
@@ -2516,9 +3230,22 @@ def submit_survey():
             "prediction": int(pred[0]),
             "probability": float(prob[0]),
             "risk_level": risk_level,
+            "urgency": urgency,
+            "confidence": confidence,
+            "confidence_label": confidence_label,
+            "confidence_band": confidence_band,
+            "confidence_reason": confidence_reason,
+            "confidence_note": confidence_note,
             "risk_score": int(round(float(prob[0]) * 100)),
             "next_reassessment_date": next_reassessment_date,
             "recommended_tasks": tasks,
+            "matched_tags": matched_tags,
+            "top_factors": top_factors,
+            "top_factors_with_weight": top_factors_with_weight,
+            "factor_task_link": factor_task_link,
+            "primary_action": primary_action,
+            "time_groups": time_groups,
+            "type_groups": type_groups,
             "medical_alerts": alerts,
         },
         "created_at": datetime.utcnow().isoformat(),
@@ -3581,6 +4308,16 @@ def _validate_record(record: dict) -> tuple[bool, str]:
     return True, ""
 
 
+def _parse_iso_date(value: str) -> date | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
 def _validate_form_input(form: dict) -> tuple[bool, str]:
     try:
         age = float(form.get("age", 0))
@@ -3954,6 +4691,14 @@ def predict_form():
         if not ok:
             return jsonify({"error": f"Invalid input: {msg}"}), 400
 
+    request_time_slot = str(data.get("time_slot", "")).strip().lower()
+    if request_time_slot and request_time_slot not in {"morning", "afternoon", "evening"}:
+        request_time_slot = ""
+
+    shap_values_list = data.get("shap_values_list")
+    if not isinstance(shap_values_list, list):
+        shap_values_list = []
+
     try:
         X = _prepare_frame_from_forms(forms, feature_order)
         input_dict = forms
@@ -3965,7 +4710,35 @@ def predict_form():
         pred = (prob >= threshold_val).astype(int)
         risk_levels = [_risk_level(p) for p in prob]
         messages = [_risk_message(level) for level in risk_levels]
-        tasks = [_generate_tasks(f) for f in forms]
+        generated = [
+            _generate_tasks_bundle(
+                f,
+                user_id=str(user_id),
+                risk_level=risk_levels[idx],
+                shap_values=(
+                    shap_values_list[idx]
+                    if idx < len(shap_values_list) and isinstance(shap_values_list[idx], dict)
+                    else None
+                ),
+                current_slot=request_time_slot or None,
+                probability=float(prob[idx]),
+            )
+            for idx, f in enumerate(forms)
+        ]
+        tasks = [list(item.get("tasks", [])) for item in generated]
+        matched_tags = [list(item.get("matched_tags", [])) for item in generated]
+        top_factors = [list(item.get("top_factors", [])) for item in generated]
+        top_factors_with_weight = [list(item.get("top_factors_with_weight", [])) for item in generated]
+        factor_task_link = [dict(item.get("factor_task_link", {})) for item in generated]
+        primary_action = [str(item.get("primary_action", "")) for item in generated]
+        time_groups = [dict(item.get("time_groups", {})) for item in generated]
+        type_groups = [dict(item.get("type_groups", {})) for item in generated]
+        confidence = [float(item.get("confidence", 0.0)) for item in generated]
+        confidence_label = [str(item.get("confidence_label", _get_confidence_label(confidence[idx]))) for idx, item in enumerate(generated)]
+        confidence_band = [str(item.get("confidence_band", _get_confidence_band(confidence[idx]))) for idx, item in enumerate(generated)]
+        confidence_reason = [str(item.get("confidence_reason", "")) for item in generated]
+        confidence_note = [str(item.get("confidence_note", _get_confidence_note(risk_levels[idx], confidence[idx]))) for idx, item in enumerate(generated)]
+        urgency = [_urgency_from_risk(level) for level in risk_levels]
         alerts = [_medical_alerts(f) for f in forms]
     except Exception as exc:  # pragma: no cover - inference guard
         return jsonify({"error": f"Inference failed: {exc}"}), 400
@@ -3974,8 +4747,21 @@ def predict_form():
         "predictions": pred.tolist(),
         "probabilities": prob.tolist(),
         "risk_levels": risk_levels,
+        "urgency": urgency,
+        "confidence": confidence,
+        "confidence_label": confidence_label,
+        "confidence_band": confidence_band,
+        "confidence_reason": confidence_reason,
+        "confidence_note": confidence_note,
         "messages": messages,
         "tasks": tasks,
+        "matched_tags": matched_tags,
+        "top_factors": top_factors,
+        "top_factors_with_weight": top_factors_with_weight,
+        "factor_task_link": factor_task_link,
+        "primary_action": primary_action,
+        "time_groups": time_groups,
+        "type_groups": type_groups,
         "alerts": alerts,
     }
 
@@ -4087,6 +4873,204 @@ def api_get_recommendations():
             "count": len(recommendations),
         })
     
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/user/tasks/upsert", methods=["POST"])
+@token_required
+def api_upsert_daily_task():
+    """Upsert a Daily Plan task completion state for a specific user/date/task."""
+    try:
+        user_id = request.current_user['user_id']
+        data = request.get_json() or {}
+
+        task_name = str(data.get("task_name", "")).strip()
+        task_date_raw = str(data.get("date", "")).strip()
+        completed = bool(data.get("completed", False))
+
+        if not task_name:
+            return jsonify({"error": "task_name is required"}), 400
+        if task_name not in DAILY_PLAN_TASKS:
+            return jsonify({"error": "Unsupported task_name"}), 400
+
+        task_date = _parse_iso_date(task_date_raw)
+        if task_date is None:
+            return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            conn.execute(
+                """
+                INSERT INTO daily_tasks (user_id, task_date, task_name, completed)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, task_date, task_name)
+                DO UPDATE SET
+                    completed = excluded.completed,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (user_id, task_date.isoformat(), task_name, 1 if completed else 0),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        return jsonify({
+            "status": "ok",
+            "task": {
+                "user_id": user_id,
+                "date": task_date.isoformat(),
+                "task_name": task_name,
+                "completed": completed,
+            },
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/user/tasks", methods=["GET"])
+@token_required
+def api_get_daily_tasks():
+    """Fetch Daily Plan task records for a date range."""
+    try:
+        user_id = request.current_user['user_id']
+        days_raw = request.args.get("days", "30")
+        try:
+            days = max(1, min(90, int(days_raw)))
+        except Exception:
+            days = 30
+
+        end_date = datetime.utcnow().date()
+        start_date = end_date - timedelta(days=days - 1)
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                """
+                SELECT task_date, task_name, completed
+                FROM daily_tasks
+                WHERE user_id = ? AND task_date BETWEEN ? AND ?
+                ORDER BY task_date ASC
+                """,
+                (user_id, start_date.isoformat(), end_date.isoformat()),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        records = [
+            {
+                "date": row["task_date"],
+                "task_name": row["task_name"],
+                "completed": bool(row["completed"]),
+            }
+            for row in rows
+        ]
+
+        return jsonify({
+            "records": records,
+            "days": days,
+            "required_tasks": DAILY_PLAN_TASKS,
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/user/tasks/insights", methods=["GET"])
+@token_required
+def api_get_daily_task_insights():
+    """Return weekly completion and risk trend data for charts/feedback loop."""
+    try:
+        user_id = request.current_user['user_id']
+        days_raw = request.args.get("days", "7")
+        try:
+            days = max(7, min(30, int(days_raw)))
+        except Exception:
+            days = 7
+
+        end_date = datetime.utcnow().date()
+        start_date = end_date - timedelta(days=days - 1)
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            task_rows = conn.execute(
+                """
+                SELECT task_date, task_name, completed
+                FROM daily_tasks
+                WHERE user_id = ? AND task_date BETWEEN ? AND ?
+                ORDER BY task_date ASC
+                """,
+                (user_id, start_date.isoformat(), end_date.isoformat()),
+            ).fetchall()
+
+            risk_rows = conn.execute(
+                """
+                SELECT risk_score, risk_level, created_at
+                FROM risk_assessments
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT 8
+                """,
+                (user_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        tasks_by_date: dict[str, dict[str, bool]] = {}
+        for row in task_rows:
+            date_key = row["task_date"]
+            if date_key not in tasks_by_date:
+                tasks_by_date[date_key] = {task: False for task in DAILY_PLAN_TASKS}
+            task_name = row["task_name"]
+            if task_name in DAILY_PLAN_TASKS:
+                tasks_by_date[date_key][task_name] = bool(row["completed"])
+
+        completion_series = []
+        total_slots = len(DAILY_PLAN_TASKS)
+        for i in range(days):
+            current = start_date + timedelta(days=i)
+            key = current.isoformat()
+            state = tasks_by_date.get(key, {task: False for task in DAILY_PLAN_TASKS})
+            completed_count = sum(1 for task in DAILY_PLAN_TASKS if state.get(task) is True)
+            completion_pct = (completed_count / total_slots) * 100 if total_slots else 0.0
+            completion_series.append({
+                "date": key,
+                "completed_count": completed_count,
+                "completion_pct": round(completion_pct, 1),
+            })
+
+        streak_days = 0
+        for i in range(0, 365):
+            current = end_date - timedelta(days=i)
+            key = current.isoformat()
+            state = tasks_by_date.get(key)
+            if not state or not all(state.get(task) is True for task in DAILY_PLAN_TASKS):
+                break
+            streak_days += 1
+
+        risk_trend = [
+            {
+                "risk_score": float(row["risk_score"]),
+                "risk_level": row["risk_level"],
+                "date": str(row["created_at"]).split(" ")[0],
+            }
+            for row in reversed(risk_rows)
+        ]
+
+        weekly_avg = (
+            sum(item["completion_pct"] for item in completion_series) / len(completion_series)
+            if completion_series
+            else 0.0
+        )
+
+        return jsonify({
+            "completion_series": completion_series,
+            "weekly_completion_pct": round(weekly_avg, 1),
+            "streak_days": streak_days,
+            "risk_trend": risk_trend,
+            "required_tasks": DAILY_PLAN_TASKS,
+        }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

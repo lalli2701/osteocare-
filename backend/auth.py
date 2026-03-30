@@ -99,6 +99,32 @@ def init_auth_db(db_path: str):
         CREATE INDEX IF NOT EXISTS idx_rec_user_id 
         ON recommendations(user_id)
     ''')
+
+    # Create daily_tasks table for Daily Plan sync
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS daily_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            task_date TEXT NOT NULL,
+            task_name TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            UNIQUE(user_id, task_date, task_name)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_daily_tasks_user_date
+        ON daily_tasks(user_id, task_date DESC)
+    ''')
+
+    # Seed reminder dataset for personalized recommendations.
+    seed_sql_path = os.path.join(os.path.dirname(__file__), "sql", "reminders_seed.sql")
+    if os.path.exists(seed_sql_path):
+        with open(seed_sql_path, "r", encoding="utf-8") as seed_file:
+            cursor.executescript(seed_file.read())
     
     conn.commit()
     conn.close()

@@ -13,7 +13,11 @@ import '../../features/dashboard/presentation/profile_page.dart';
 import '../../features/survey/presentation/survey_page.dart';
 import '../../features/survey/presentation/result_page.dart';
 import '../../features/survey/presentation/prescriptions_page.dart';
+import '../../features/survey/presentation/saved_reports_page.dart';
+import '../../features/survey/presentation/nearby_hospitals_page.dart';
+import '../../features/survey/presentation/saved_hospitals_page.dart';
 import '../../features/dashboard/presentation/tasks_page.dart';
+import '../../features/dashboard/presentation/survey_history_page.dart';
 import '../../features/chatbot/presentation/chatbot_page_refactored.dart';
 import '../../features/splash/presentation/splash_page.dart';
 
@@ -88,8 +92,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: SurveyHistoryPage.routePath,
+        builder: (context, state) => const SurveyHistoryPage(),
+      ),
+      GoRoute(
         path: PrescriptionsPage.routePath,
         builder: (context, state) => const PrescriptionsPage(),
+      ),
+      GoRoute(
+        path: SavedReportsPage.routePath,
+        builder: (context, state) => const SavedReportsPage(),
+      ),
+      GoRoute(
+        path: NearbyHospitalsPage.routePath,
+        builder: (context, state) => const NearbyHospitalsPage(),
+      ),
+      GoRoute(
+        path: SavedHospitalsPage.routePath,
+        builder: (context, state) => const SavedHospitalsPage(),
       ),
       GoRoute(
         path: ChatbotPageRefactored.routePath,

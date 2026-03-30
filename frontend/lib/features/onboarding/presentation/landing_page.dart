@@ -110,6 +110,14 @@ class _LandingPageState extends State<LandingPage> {
     });
   }
 
+  Future<void> _navigateToAuth(String routePath) async {
+    await _stopOverview();
+    if (!mounted) {
+      return;
+    }
+    context.push(routePath);
+  }
+
   @override
   void dispose() {
     _flutterTts?.stop();
@@ -119,6 +127,11 @@ class _LandingPageState extends State<LandingPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    const primaryBlue = Color(0xFF2F80ED);
+    const pageBackground = Color(0xFFF5FAFF);
+    const cardBackground = Colors.white;
+    const textPrimary = Color(0xFF1D3557);
+    const textSecondary = Color(0xFF4F6480);
 
     return Scaffold(
       body: Stack(
@@ -129,10 +142,10 @@ class _LandingPageState extends State<LandingPage> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  const Color(0xFF0A1929),
-                  const Color(0xFF132F4C),
-                  const Color(0xFF1A3A52),
-                  const Color(0xFF0D2438),
+                  pageBackground,
+                  const Color(0xFFEAF4FF),
+                  const Color(0xFFDDEEFF),
+                  const Color(0xFFF7FBFF),
                 ],
               ),
             ),
@@ -150,13 +163,13 @@ class _LandingPageState extends State<LandingPage> {
                       'OsteoCare+',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.displayMedium?.copyWith(
-                        color: const Color(0xFF00D9A3),
+                        color: primaryBlue,
                         fontWeight: FontWeight.w800,
                         shadows: [
                           Shadow(
-                            color: const Color(0xFF00D9A3).withValues(alpha: 0.4),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
+                            color: primaryBlue.withValues(alpha: 0.18),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
                           ),
                         ],
                       ),
@@ -166,7 +179,7 @@ class _LandingPageState extends State<LandingPage> {
                       'landing_tagline'.tr(),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.headlineSmall?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.7),
+                        color: textSecondary,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -175,16 +188,16 @@ class _LandingPageState extends State<LandingPage> {
                       margin: const EdgeInsets.symmetric(horizontal: 100),
                       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF00D9A3).withValues(alpha: 0.08),
+                        color: Colors.white.withValues(alpha: 0.95),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: const Color(0xFF00D9A3).withValues(alpha: 0.3),
+                          color: primaryBlue.withValues(alpha: 0.16),
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF00D9A3).withValues(alpha: 0.15),
-                            blurRadius: 24,
-                            offset: const Offset(0, 8),
+                            color: primaryBlue.withValues(alpha: 0.08),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
@@ -192,7 +205,7 @@ class _LandingPageState extends State<LandingPage> {
                         'landing_early_awareness'.tr(),
                         textAlign: TextAlign.center,
                         style: theme.textTheme.titleLarge?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.85),
+                          color: textPrimary,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -202,10 +215,10 @@ class _LandingPageState extends State<LandingPage> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF00D9A3).withValues(alpha: 0.08),
+                        color: cardBackground,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: const Color(0xFF00D9A3).withValues(alpha: 0.3),
+                          color: primaryBlue.withValues(alpha: 0.16),
                         ),
                       ),
                       child: Column(
@@ -214,7 +227,7 @@ class _LandingPageState extends State<LandingPage> {
                           Text(
                             'select_language'.tr(),
                             style: theme.textTheme.titleMedium?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.9),
+                              color: textPrimary,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -248,7 +261,7 @@ class _LandingPageState extends State<LandingPage> {
                         width: 235,
                         child: _darkGradientButton(
                           label: 'create_account'.tr(),
-                          onPressed: () => context.push('/signup'),
+                          onPressed: () => _navigateToAuth('/signup'),
                         ),
                       ),
                     ),
@@ -257,10 +270,10 @@ class _LandingPageState extends State<LandingPage> {
                       child: SizedBox(
                         width: 165,
                         child: OutlinedButton(
-                          onPressed: () => context.push('/login'),
+                          onPressed: () => _navigateToAuth('/login'),
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(
-                              color: Color(0xFF00D9A3),
+                              color: primaryBlue,
                               width: 2,
                             ),
                             padding: const EdgeInsets.symmetric(vertical: 10),
@@ -273,7 +286,7 @@ class _LandingPageState extends State<LandingPage> {
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
-                              color: Color(0xFF00D9A3),
+                              color: primaryBlue,
                             ),
                           ),
                         ),
@@ -283,16 +296,16 @@ class _LandingPageState extends State<LandingPage> {
                     Container(
                       padding: const EdgeInsets.all(22),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.05),
+                        color: cardBackground,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: const Color(0xFF00D9A3).withValues(alpha: 0.25),
+                          color: primaryBlue.withValues(alpha: 0.16),
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF00D9A3).withValues(alpha: 0.1),
-                            blurRadius: 20,
-                            offset: const Offset(0, 6),
+                            color: primaryBlue.withValues(alpha: 0.08),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
@@ -301,12 +314,12 @@ class _LandingPageState extends State<LandingPage> {
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.record_voice_over, color: Color(0xFF00D9A3)),
+                              const Icon(Icons.record_voice_over, color: primaryBlue),
                               const SizedBox(width: 10),
                               Text(
                                 'landing_tap_overview'.tr(),
                                 style: theme.textTheme.headlineSmall?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.9),
+                                  color: textPrimary,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -316,7 +329,7 @@ class _LandingPageState extends State<LandingPage> {
                           Text(
                             'landing_voice_guidance'.tr(),
                             style: theme.textTheme.titleMedium?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.5),
+                              color: textSecondary,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -329,7 +342,7 @@ class _LandingPageState extends State<LandingPage> {
                     Text(
                       'landing_why_details'.tr(),
                       style: theme.textTheme.displaySmall?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.92),
+                        color: textPrimary,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -350,16 +363,16 @@ class _LandingPageState extends State<LandingPage> {
                     Container(
                       padding: const EdgeInsets.all(22),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFED6C02).withValues(alpha: 0.1),
+                        color: const Color(0xFFFFF8F1),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: const Color(0xFFED6C02).withValues(alpha: 0.4),
+                          color: const Color(0xFFF4C897),
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFFED6C02).withValues(alpha: 0.15),
-                            blurRadius: 20,
-                            offset: const Offset(0, 6),
+                            color: const Color(0xFFED6C02).withValues(alpha: 0.08),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
                           ),
                         ],
                       ),
@@ -373,7 +386,7 @@ class _LandingPageState extends State<LandingPage> {
                               Text(
                                 'landing_medical_disclaimer'.tr(),
                                 style: theme.textTheme.headlineSmall?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.92),
+                                  color: textPrimary,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -383,7 +396,7 @@ class _LandingPageState extends State<LandingPage> {
                           Text(
                             'landing_medical_disclaimer_text'.tr(),
                             style: theme.textTheme.titleMedium?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.82),
+                              color: textSecondary,
                               height: 1.5,
                             ),
                           ),
@@ -394,7 +407,7 @@ class _LandingPageState extends State<LandingPage> {
                     Text(
                       'landing_how_it_works'.tr(),
                       style: theme.textTheme.displaySmall?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.92),
+                        color: textPrimary,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -410,7 +423,7 @@ class _LandingPageState extends State<LandingPage> {
                       runSpacing: 14,
                       alignment: WrapAlignment.center,
                       children: [
-                        _stat('1.5L+', 'landing_stat_people'.tr(), const Color(0xFF00D9A3)),
+                        _stat('1.5L+', 'landing_stat_people'.tr(), primaryBlue),
                         _stat('1 in 3', 'landing_stat_women'.tr(), const Color(0xFFC8A028)),
                         _stat('1 in 5', 'landing_stat_men'.tr(), const Color(0xFF1AAFD3)),
                       ],
@@ -421,9 +434,9 @@ class _LandingPageState extends State<LandingPage> {
                         spacing: 10,
                         children: [
                           _footerLink('terms'.tr(), () => context.push('/terms')),
-                          Text('•', style: TextStyle(color: Colors.white.withValues(alpha: 0.35))),
+                          Text('•', style: TextStyle(color: textSecondary.withValues(alpha: 0.55))),
                           _footerLink('privacy_policy'.tr(), () => context.push('/privacy')),
-                          Text('•', style: TextStyle(color: Colors.white.withValues(alpha: 0.35))),
+                          Text('•', style: TextStyle(color: textSecondary.withValues(alpha: 0.55))),
                           _footerLink('contact'.tr(), () {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text('landing_contact_snackbar'.tr())),
@@ -437,7 +450,7 @@ class _LandingPageState extends State<LandingPage> {
                       child: Text(
                         'OsteoCare+ v1.0.0',
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.4),
+                          color: textSecondary,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -465,21 +478,21 @@ class _LandingPageState extends State<LandingPage> {
     return Material(
       elevation: 8,
       borderRadius: BorderRadius.circular(16),
-      color: Colors.black87,
+      color: Colors.white,
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: const Color(0xFF00D9A3).withValues(alpha: 0.3),
+            color: const Color(0xFF2F80ED).withValues(alpha: 0.25),
             width: 1.5,
           ),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Colors.black.withValues(alpha: 0.9),
-              const Color(0xFF132F4C).withValues(alpha: 0.9),
+              Colors.white,
+              const Color(0xFFF0F7FF),
             ],
           ),
         ),
@@ -526,16 +539,16 @@ class _LandingPageState extends State<LandingPage> {
         child: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: const Color(0xFF00D9A3).withValues(alpha: enabled ? 0.2 : 0.05),
+            color: const Color(0xFF2F80ED).withValues(alpha: enabled ? 0.14 : 0.05),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: const Color(0xFF00D9A3).withValues(alpha: enabled ? 0.4 : 0.1),
+              color: const Color(0xFF2F80ED).withValues(alpha: enabled ? 0.35 : 0.1),
             ),
           ),
           child: Icon(
             icon,
             size: 24,
-            color: const Color(0xFF00D9A3).withValues(alpha: enabled ? 1.0 : 0.3),
+            color: const Color(0xFF2F80ED).withValues(alpha: enabled ? 1.0 : 0.3),
           ),
         ),
       ),
@@ -548,13 +561,13 @@ class _LandingPageState extends State<LandingPage> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF00D9A3).withValues(alpha: 0.2)),
-        color: Colors.white.withValues(alpha: 0.03),
+        border: Border.all(color: const Color(0xFF2F80ED).withValues(alpha: 0.15)),
+        color: Colors.white.withValues(alpha: 0.95),
       ),
       child: Text(
         text,
         style: Theme.of(context).textTheme.titleMedium?.copyWith(
-          color: Colors.white.withValues(alpha: 0.78),
+          color: const Color(0xFF4F6480),
           height: 1.45,
         ),
       ),
@@ -572,12 +585,12 @@ class _LandingPageState extends State<LandingPage> {
             height: 24,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF00D9A3), Color(0xFF00B599)],
+                colors: [Color(0xFF56CCF2), Color(0xFF2F80ED)],
               ),
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF00D9A3).withValues(alpha: 0.3),
+                  color: const Color(0xFF2F80ED).withValues(alpha: 0.22),
                   blurRadius: 8,
                 ),
               ],
@@ -596,7 +609,7 @@ class _LandingPageState extends State<LandingPage> {
             child: Text(
               text,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.white.withValues(alpha: 0.8),
+                color: const Color(0xFF4F6480),
                 height: 1.45,
               ),
             ),
@@ -625,7 +638,7 @@ class _LandingPageState extends State<LandingPage> {
         Text(
           label,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: Colors.white.withValues(alpha: 0.65),
+            color: const Color(0xFF4F6480),
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -639,7 +652,7 @@ class _LandingPageState extends State<LandingPage> {
       child: Text(
         label,
         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-          color: const Color(0xFF00D9A3),
+          color: const Color(0xFF2F80ED),
           fontWeight: FontWeight.w700,
           decoration: TextDecoration.underline,
         ),
@@ -656,16 +669,16 @@ class _LandingPageState extends State<LandingPage> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF00D9A3).withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            color: const Color(0xFF2F80ED).withValues(alpha: 0.2),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
       child: FilledButton(
         onPressed: onPressed,
         style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFF00D9A3),
+          backgroundColor: const Color(0xFF2F80ED),
           padding: const EdgeInsets.symmetric(vertical: 15),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
@@ -693,10 +706,10 @@ class _LandingPageState extends State<LandingPage> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: isSelected ? const Color(0xFF00D9A3) : const Color(0xFF00D9A3).withValues(alpha: 0.3),
+            color: isSelected ? const Color(0xFF2F80ED) : const Color(0xFF2F80ED).withValues(alpha: 0.3),
             width: isSelected ? 2 : 1,
           ),
-          color: isSelected ? const Color(0xFF00D9A3).withValues(alpha: 0.15) : Colors.transparent,
+          color: isSelected ? const Color(0xFF2F80ED).withValues(alpha: 0.12) : Colors.transparent,
         ),
         child: Material(
           color: Colors.transparent,
@@ -719,7 +732,7 @@ class _LandingPageState extends State<LandingPage> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: isSelected ? const Color(0xFF00D9A3) : Colors.white.withValues(alpha: 0.7),
+                  color: isSelected ? const Color(0xFF2F80ED) : const Color(0xFF4F6480),
                 ),
               ),
             ),

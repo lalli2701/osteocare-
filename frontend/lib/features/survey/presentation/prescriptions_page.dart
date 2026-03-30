@@ -31,7 +31,9 @@ class _PrescriptionsPageState extends State<PrescriptionsPage> {
   }
 
   Future<void> _loadReports() async {
-    final reports = await PrescriptionStorageService.getReports();
+    final reports = await PrescriptionStorageService.getReportsBySources(
+      const {'files', 'camera'},
+    );
     if (!mounted) {
       return;
     }

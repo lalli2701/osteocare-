@@ -26,7 +26,9 @@ class AboutPage extends StatelessWidget {
         ),
         title: const Text('About OsteoCare+'),
       ),
-      floatingActionButton: const AssistantFab(),
+      floatingActionButton: const AssistantFab(
+        contextHint: 'Ask anything about your bone health',
+      ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: Padding(
         padding: const EdgeInsets.all(16),

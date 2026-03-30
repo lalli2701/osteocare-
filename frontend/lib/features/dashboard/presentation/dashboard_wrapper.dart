@@ -65,10 +65,25 @@ class _DashboardWrapperState extends ConsumerState<DashboardWrapper> {
     // Force rebuild when locale changes
     context.locale;
 
+    final isSurveyMode = _selectedIndex == 1;
+
+    Widget? contextualFab;
+    if (_selectedIndex == 0) {
+      contextualFab = const AssistantFab(
+        contextHint: 'Ask how to reduce your risk',
+      );
+    } else if (_selectedIndex == 3) {
+      contextualFab = const AssistantFab(
+        contextHint: 'Explain my results and next steps',
+      );
+    }
+
     return Scaffold(
       body: _pages[_selectedIndex],
-      floatingActionButton: _selectedIndex != 1 ? const AssistantFab() : null,
-      bottomNavigationBar: BottomNavigationBar(
+      floatingActionButton: isSurveyMode ? null : contextualFab,
+      bottomNavigationBar: isSurveyMode
+          ? null
+          : BottomNavigationBar(
         items: [
           BottomNavigationBarItem(
             icon: const Icon(Icons.dashboard),
@@ -80,7 +95,7 @@ class _DashboardWrapperState extends ConsumerState<DashboardWrapper> {
           ),
           BottomNavigationBarItem(
             icon: const Icon(Icons.task_alt),
-            label: 'tasks'.tr(),
+            label: 'Daily Plan',
           ),
           BottomNavigationBarItem(
             icon: const Icon(Icons.person),

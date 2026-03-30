@@ -9,10 +9,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../presentation/result_page.dart';
-import '../presentation/voice_question_widget.dart';
 import '../../../core/auth/auth_service.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/local_survey_store.dart';
+import '../../../core/services/permission_service.dart';
+import '../../../core/services/speech_recognition_service.dart';
 import '../../../core/services/survey_service.dart';
 import '../../../core/services/survey_sync_service.dart';
 import '../../../core/services/voice_service.dart';
@@ -36,10 +37,15 @@ class _SurveyPageState extends State<SurveyPage> {
   bool _isSubmitting = false;
   String? _errorMessage;
   bool _voiceEnabled = true;
+  bool _isListening = false;
+  bool _isSpeakingQuestion = false;
+  String? _voiceStatusMessage;
   Timer? _autoNextTimer;
   String? _questionValidationError;
   late Locale _currentLocale;
   bool _localeInitialized = false;
+  late SpeechRecognitionService _speechService;
+  late PermissionService _permissionService;
 
   static const _riskLevelKey = 'risk_level';
   static const _nextReassessmentDateKey = 'next_reassessment_date';
@@ -63,6 +69,7 @@ class _SurveyPageState extends State<SurveyPage> {
     }
     if (newLocale != _currentLocale) {
       _currentLocale = newLocale;
+      unawaited(_speechService.setLanguage(newLocale.languageCode));
       _loadQuestions();
     }
   }
@@ -72,10 +79,15 @@ class _SurveyPageState extends State<SurveyPage> {
       // Initialize core service and load survey questions first.
       // Voice and sync should not block form rendering on mobile.
       _surveyService = SurveyService();
+      _speechService = SpeechRecognitionService();
+      _permissionService = PermissionService();
 
       // Load voice preference
       final prefs = await SharedPreferences.getInstance();
       _voiceEnabled = prefs.getBool(_voiceEnabledKey) ?? true;
+
+      await _speechService.initialize();
+      await _speechService.setLanguage(context.locale.languageCode);
 
       // Load questions from SurveyService
       await _loadQuestions();
@@ -267,33 +279,6 @@ class _SurveyPageState extends State<SurveyPage> {
     }
 
     return _formData[currentQ.fieldName] != null;
-  }
-
-  /// Handle voice answer confirmation
-  void _handleVoiceAnswer(String fieldName, dynamic answer) {
-    final question =
-        _questions.firstWhere((q) => q.fieldName == fieldName, orElse: () {
-      return _questions[_currentQuestionIndex];
-    });
-
-    dynamic normalized = answer;
-    if (question.type == 'yes_no') {
-      normalized = _normalizeYesNoForField(fieldName, answer);
-    }
-
-    setState(() {
-      _formData[fieldName] = normalized;
-    });
-
-    // Auto-advance to next question for yes_no answers
-    if (question.type == 'yes_no' && _isCurrentQuestionComplete()) {
-      // Slight delay to show confirmation
-      Future.delayed(const Duration(milliseconds: 800), () {
-        if (mounted) {
-          _nextQuestion();
-        }
-      });
-    }
   }
 
   dynamic _normalizeYesNoForField(String fieldName, dynamic value) {
@@ -510,6 +495,181 @@ class _SurveyPageState extends State<SurveyPage> {
     }
   }
 
+  Future<void> _speakCurrentQuestion(SurveyQuestion question) async {
+    if (!_voiceEnabled || _isSpeakingQuestion) {
+      return;
+    }
+
+    final script = VoiceService().buildQuestionVoiceScript(
+      question.question,
+      _currentQuestionIndex + 1,
+      _questions.length,
+      options: _getAnswerOptions(question),
+    );
+
+    setState(() {
+      _isSpeakingQuestion = true;
+      _voiceStatusMessage = null;
+    });
+
+    try {
+      await VoiceService().speak(script);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _voiceStatusMessage = 'Unable to read this question right now';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSpeakingQuestion = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _captureVoiceAnswer(SurveyQuestion question) async {
+    if (!_voiceEnabled || _isListening) {
+      return;
+    }
+
+    final hasPermission = await _permissionService.ensureMicrophonePermission();
+    if (!hasPermission) {
+      if (mounted) {
+        setState(() {
+          _voiceStatusMessage =
+              'Microphone permission is required to capture voice answers';
+        });
+      }
+      return;
+    }
+
+    setState(() {
+      _isListening = true;
+      _voiceStatusMessage = 'Listening...';
+    });
+
+    try {
+      await _speechService.startListening(
+        onResult: (transcript) async {
+          final normalized = transcript.trim();
+          if (normalized.isEmpty) {
+            return;
+          }
+
+          await _speechService.stopListening();
+          if (!mounted) {
+            return;
+          }
+
+          setState(() {
+            _isListening = false;
+          });
+
+          _applyVoiceTranscript(question, normalized);
+        },
+        onError: () {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _isListening = false;
+            _voiceStatusMessage = 'Could not understand. Please try again';
+          });
+        },
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isListening = false;
+          _voiceStatusMessage = 'Voice capture failed. Try again';
+        });
+      }
+    }
+  }
+
+  void _applyVoiceTranscript(SurveyQuestion question, String transcript) {
+    dynamic value;
+    final lowerTranscript = transcript.toLowerCase();
+
+    if (question.type == 'yes_no') {
+      final parsed = _speechService.parseYesNoAnswer(transcript);
+      if (parsed == RecognitionResult.yes) {
+        value = _normalizeYesNoForField(question.fieldName, 'Yes');
+      } else if (parsed == RecognitionResult.no) {
+        value = _normalizeYesNoForField(question.fieldName, 'No');
+      }
+    } else if (question.type == 'number_input') {
+      value = _speechService.extractNumber(transcript);
+    } else if (question.type == 'select' && question.options != null) {
+      for (final option in question.options!) {
+        final optionValue = option['value']?.toString() ?? '';
+        final optionLabel = option['label']?.toString() ?? optionValue;
+        final labelLower = optionLabel.toLowerCase();
+        final valueLower = optionValue.toLowerCase();
+        if (lowerTranscript.contains(labelLower) ||
+            (valueLower.isNotEmpty && lowerTranscript.contains(valueLower))) {
+          value = optionValue;
+          break;
+        }
+      }
+    } else if (question.type == 'height_weight') {
+      final spokenWeight = _speechService.extractNumber(transcript);
+      if (spokenWeight != null && spokenWeight >= 25 && spokenWeight <= 220) {
+        setState(() {
+          _formData['weight_kg'] = spokenWeight.toDouble();
+          _voiceStatusMessage = 'Weight updated from voice';
+          _questionValidationError = _heightWeightValidationMessage();
+        });
+      } else {
+        setState(() {
+          _voiceStatusMessage =
+              'Say a valid weight in kilograms between 25 and 220';
+        });
+      }
+      return;
+    }
+
+    if (value == null) {
+      setState(() {
+        _voiceStatusMessage = 'Try speaking a clearer answer';
+      });
+      return;
+    }
+
+    setState(() {
+      _formData[question.fieldName] = value;
+      _questionValidationError = null;
+      _voiceStatusMessage = 'Answer captured: $transcript';
+    });
+
+    if (question.type == 'yes_no' && _isCurrentQuestionComplete()) {
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) {
+          _nextQuestion();
+        }
+      });
+    }
+  }
+
+  String? _continueHint(SurveyQuestion question) {
+    if (_isSubmitting) {
+      return null;
+    }
+    if (_questionValidationError != null) {
+      return _questionValidationError;
+    }
+    if (question.required && !_isCurrentQuestionComplete()) {
+      return 'Answer this step to continue';
+    }
+    return _validateCurrentQuestion(question);
+  }
+
+  bool _canContinue(SurveyQuestion question) {
+    return !_isSubmitting && _continueHint(question) == null;
+  }
+
   Widget _buildQuestionInput(SurveyQuestion question) {
     final fieldName = question.fieldName;
     final type = question.type;
@@ -521,46 +681,69 @@ class _SurveyPageState extends State<SurveyPage> {
             ? (_questionValidationError ?? _ageValidationMessage(_formData[fieldName]))
             : null;
         return TextFormField(
-          keyboardType:
-              const TextInputType.numberWithOptions(decimal: false),
+          key: ValueKey('${fieldName}_input'),
+          initialValue: _formData[fieldName]?.toString() ?? '',
+          textAlign: TextAlign.center,
+          keyboardType: const TextInputType.numberWithOptions(decimal: false),
+          style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700),
           decoration: InputDecoration(
-            labelText: question.question,
-            hintText: 'Enter a number',
-            border: const OutlineInputBorder(),
-            helperText: question.helpText,
+            hintText: '22',
+            suffixText: fieldName == 'age' ? 'years' : null,
+            filled: true,
+            fillColor: Colors.blue.shade50,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: BorderSide(color: Colors.blue.shade200),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: BorderSide(color: Colors.blue.shade200),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: BorderSide(color: Colors.blue.shade500, width: 2),
+            ),
             errorText: ageError,
           ),
           onChanged: (value) {
             setState(() {
               final parsed = value.isEmpty ? null : int.tryParse(value);
               _formData[fieldName] = parsed;
-              if (fieldName == 'age') {
-                _questionValidationError = _ageValidationMessage(parsed);
-              }
+              _questionValidationError =
+                  fieldName == 'age' ? _ageValidationMessage(parsed) : null;
             });
           },
         );
 
       case 'select':
-        return DropdownButtonFormField<String>(
-          initialValue: _formData[fieldName] as String?,
-          decoration: InputDecoration(
-            labelText: question.question,
-            border: const OutlineInputBorder(),
-            helperText: question.helpText,
-          ),
-          items: options
-              ?.map((opt) => DropdownMenuItem<String>(
-                    value: opt['value'],
-                    child: Text(opt['label'] ?? opt['value']),
-                  ))
-              .toList(),
-          onChanged: (value) {
-            setState(() => _formData[fieldName] = value);
-            if (value != null) {
-              _scheduleAutoNextIfOptional(question);
-            }
-          },
+        final selected = _formData[fieldName] as String?;
+        return Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final option in options ?? <Map<String, dynamic>>[])
+              ChoiceChip(
+                label: Text(option['label'] ?? option['value']),
+                selected: selected == option['value'],
+                labelStyle: TextStyle(
+                  color: selected == option['value']
+                      ? Colors.white
+                      : Colors.blueGrey.shade900,
+                  fontWeight: FontWeight.w600,
+                ),
+                selectedColor: Colors.blue.shade700,
+                backgroundColor: Colors.blue.shade50,
+                side: BorderSide(color: Colors.blue.shade200),
+                onSelected: (_) {
+                  setState(() {
+                    _formData[fieldName] = option['value'];
+                    _questionValidationError = null;
+                  });
+                  _scheduleAutoNextIfOptional(question);
+                },
+              ),
+          ],
         );
 
       case 'yes_no':
@@ -578,96 +761,71 @@ class _SurveyPageState extends State<SurveyPage> {
             : (currentValue == 'No');
 
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    question.question,
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w500),
+            if (infoText != null || noteText != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  (infoText ?? noteText ?? '').replaceAll('\\n', '\n'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.blueGrey.shade700,
                   ),
                 ),
-                if (infoText != null) ...[
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.info_outline, size: 20),
-                    onPressed: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: Text('What is ${question.fieldName}?'),
-                          content: Text(
-                            infoText.replaceAll('\\n', '\n'),
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text('Got it'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              question.helpText,
-              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-            ),
-            if (noteText != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                noteText,
-                style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[500],
-                    fontStyle: FontStyle.italic),
               ),
-            ],
-            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => setState(() {
-                      _formData[fieldName] = isArthritis ? true : 'Yes';
+                  child: FilledButton(
+                    onPressed: () {
+                      setState(() {
+                        _formData[fieldName] = isArthritis ? true : 'Yes';
+                        _questionValidationError = null;
+                      });
                       _scheduleAutoNextIfOptional(question);
-                    }),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: isYesSelected ? Colors.blue : null,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: Text(
-                      'Yes',
-                      style: TextStyle(
-                        color: isYesSelected ? Colors.white : null,
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: isYesSelected
+                          ? Colors.blue.shade700
+                          : Colors.blue.shade100,
+                      foregroundColor:
+                          isYesSelected ? Colors.white : Colors.blueGrey.shade900,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
+                    child: const Text('Yes'),
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => setState(() {
-                      _formData[fieldName] = isArthritis ? false : 'No';
+                  child: FilledButton(
+                    onPressed: () {
+                      setState(() {
+                        _formData[fieldName] = isArthritis ? false : 'No';
+                        _questionValidationError = null;
+                      });
                       _scheduleAutoNextIfOptional(question);
-                    }),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: isNoSelected ? Colors.blue : null,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: Text(
-                      'No',
-                      style: TextStyle(
-                        color: isNoSelected ? Colors.white : null,
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: isNoSelected
+                          ? Colors.blue.shade700
+                          : Colors.blue.shade100,
+                      foregroundColor:
+                          isNoSelected ? Colors.white : Colors.blueGrey.shade900,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
+                    child: const Text('No'),
                   ),
                 ),
               ],
@@ -706,64 +864,80 @@ class _SurveyPageState extends State<SurveyPage> {
           _questionValidationError ?? _heightWeightValidationMessage();
 
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    initialValue: feet,
+                    decoration: InputDecoration(
+                      labelText: 'Feet',
+                      filled: true,
+                      fillColor: Colors.blue.shade50,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: Colors.blue.shade200),
+                      ),
+                    ),
+                    items: List.generate(4, (i) => i + 4)
+                        .map(
+                          (value) => DropdownMenuItem<int>(
+                            value: value,
+                            child: Text('$value ft'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() => _formData['height_feet'] = value);
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    initialValue: inches,
+                    decoration: InputDecoration(
+                      labelText: 'Inches',
+                      filled: true,
+                      fillColor: Colors.blue.shade50,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(color: Colors.blue.shade200),
+                      ),
+                    ),
+                    items: List.generate(12, (i) => i)
+                        .map(
+                          (value) => DropdownMenuItem<int>(
+                            value: value,
+                            child: Text('$value in'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() => _formData['height_inches'] = value);
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
             Text(
-              question.question,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              question.helpText,
-              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 16),
-            // Height - Feet dropdown
-            DropdownButtonFormField<int>(
-              initialValue: feet,
-              decoration: InputDecoration(
-                labelText: 'Height (Feet)',
-                border: const OutlineInputBorder(),
+              'Weight: ${weight?.toStringAsFixed(1) ?? '--'} kg',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
               ),
-              items: List.generate(4, (i) => i + 4)
-                  .map((value) => DropdownMenuItem<int>(
-                        value: value,
-                        child: Text('$value ft'),
-                      ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() => _formData['height_feet'] = value);
-              },
             ),
-            const SizedBox(height: 12),
-            // Height - Inches dropdown
-            DropdownButtonFormField<int>(
-              initialValue: inches,
-              decoration: InputDecoration(
-                labelText: 'Height (Inches)',
-                border: const OutlineInputBorder(),
-              ),
-              items: List.generate(12, (i) => i)
-                  .map((value) => DropdownMenuItem<int>(
-                        value: value,
-                        child: Text('$value in'),
-                      ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() => _formData['height_inches'] = value);
-              },
-            ),
-            const SizedBox(height: 12),
-            // Weight input
-            TextFormField(
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: 'Weight (kg)',
-                border: const OutlineInputBorder(),
-              ),
+            Slider(
+              value: (weight ?? 60).clamp(25, 220),
+              min: 25,
+              max: 220,
+              divisions: 195,
+              label: '${(weight ?? 60).toStringAsFixed(1)} kg',
               onChanged: (value) {
                 setState(() {
-                  _formData['weight_kg'] = value.isEmpty ? null : double.tryParse(value);
+                  _formData['weight_kg'] = double.parse(value.toStringAsFixed(1));
                   _questionValidationError = _heightWeightValidationMessage();
                 });
               },
@@ -826,6 +1000,85 @@ class _SurveyPageState extends State<SurveyPage> {
       default:
         return Text('Unknown question type: $type');
     }
+  }
+
+  Widget _buildGuidedQuestionStep(SurveyQuestion question) {
+    return Column(
+      key: ValueKey('${question.fieldName}_step_$_currentQuestionIndex'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 14),
+        Text(
+          'Let\'s get to know you',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.blueGrey.shade700,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 22),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                question.question,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 30,
+                  height: 1.25,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Read question',
+              onPressed: _isListening ? null : () => _speakCurrentQuestion(question),
+              icon: Icon(
+                _isSpeakingQuestion ? Icons.volume_up_rounded : Icons.volume_up_outlined,
+                color: Colors.blue.shade700,
+              ),
+            ),
+          ],
+        ),
+        if (question.helpText.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(
+            question.helpText,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.blueGrey.shade500,
+            ),
+          ),
+        ],
+        const Spacer(),
+        _buildQuestionInput(question),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _isSpeakingQuestion ? null : () => _captureVoiceAnswer(question),
+          icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
+          label: Text(_isListening ? 'Listening...' : 'Speak your answer'),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            side: BorderSide(color: Colors.blue.shade300),
+          ),
+        ),
+        if (_voiceStatusMessage != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _voiceStatusMessage!,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.blueGrey.shade600,
+            ),
+          ),
+        ],
+        const Spacer(),
+      ],
+    );
   }
 
   @override
@@ -908,21 +1161,10 @@ class _SurveyPageState extends State<SurveyPage> {
     final currentQuestion = _questions[_currentQuestionIndex];
     final progress = (_currentQuestionIndex + 1) / _questions.length;
 
+    final continueHint = _continueHint(currentQuestion);
+    final canContinue = _canContinue(currentQuestion);
+
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/dashboard');
-            }
-          },
-        ),
-        title: const Text('Bone Health Survey'),
-        elevation: 0,
-      ),
       body: Focus(
         autofocus: true,
         onKeyEvent: (_, event) {
@@ -931,7 +1173,7 @@ class _SurveyPageState extends State<SurveyPage> {
           }
 
           if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-            if (!_isSubmitting && _isCurrentQuestionComplete()) {
+            if (canContinue) {
               _nextQuestion();
             }
             return KeyEventResult.handled;
@@ -944,93 +1186,114 @@ class _SurveyPageState extends State<SurveyPage> {
 
           return KeyEventResult.ignored;
         },
-        child: Column(
-          children: [
-            // Progress bar
-            LinearProgressIndicator(value: progress),
-            // Question number
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Question ${_currentQuestionIndex + 1} of ${_questions.length}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ),
-            ),
-            // Question content with voice wrapper
-            Expanded(
-              child: SingleChildScrollView(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                child: VoiceQuestionWidget(
-                  questionWidget: _buildQuestionInput(currentQuestion),
-                  questionText: currentQuestion.question,
-                  fieldName: currentQuestion.fieldName,
-                  questionType: currentQuestion.type,
-                  currentIndex: _currentQuestionIndex,
-                  totalQuestions: _questions.length,
-                  enableVoice: _voiceEnabled,
-                  answerOptions: _getAnswerOptions(currentQuestion),
-                  onVoiceAnswerConfirmed: _handleVoiceAnswer,
-                ),
-              ),
-            ),
-            // Navigation buttons
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Row(
-                children: [
-                  if (_currentQuestionIndex > 0) ...[
-                    OutlinedButton.icon(
-                      onPressed: _previousQuestion,
-                      icon: const Icon(Icons.arrow_back),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 16,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      onPressed: () {
+                        if (_currentQuestionIndex > 0) {
+                          _previousQuestion();
+                        } else if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go('/dashboard');
+                        }
+                      },
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                    ),
+                    Expanded(
+                      child: Text(
+                        'Step ${_currentQuestionIndex + 1} of ${_questions.length}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.blueGrey.shade700,
                         ),
                       ),
-                      label: const Text('Back'),
                     ),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: 48),
                   ],
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: (_isSubmitting || !_isCurrentQuestionComplete()) ? null : _nextQuestion,
-                      icon: Icon(
-                        _currentQuestionIndex == _questions.length - 1
-                            ? Icons.check
-                            : Icons.arrow_forward,
-                      ),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      label: _isSubmitting
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : Text(
-                              _currentQuestionIndex == _questions.length - 1
-                                  ? 'Submit'
-                                  : 'Next',
-                            ),
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 12,
+                    backgroundColor: Colors.blue.shade100,
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 280),
+                    switchInCurve: Curves.easeOut,
+                    switchOutCurve: Curves.easeIn,
+                    transitionBuilder: (child, animation) {
+                      final slide = Tween<Offset>(
+                        begin: const Offset(0.08, 0),
+                        end: Offset.zero,
+                      ).animate(animation);
+                      return FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(position: slide, child: child),
+                      );
+                    },
+                    child: _buildGuidedQuestionStep(currentQuestion),
+                  ),
+                ),
+                if (continueHint != null) ...[
+                  Text(
+                    continueHint,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.blueGrey.shade600,
+                      fontSize: 12,
                     ),
                   ),
+                  const SizedBox(height: 8),
                 ],
-              ),
+                FilledButton(
+                  onPressed: canContinue ? _nextQuestion : null,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: canContinue
+                        ? Colors.blue.shade700
+                        : Colors.blueGrey.shade300,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : Text(
+                          _currentQuestionIndex == _questions.length - 1
+                              ? 'Submit'
+                              : 'Continue ->',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1053,6 +1316,7 @@ class _SurveyPageState extends State<SurveyPage> {
   @override
   void dispose() {
     _autoNextTimer?.cancel();
+    unawaited(_speechService.dispose());
     VoiceService().stop();
     super.dispose();
   }

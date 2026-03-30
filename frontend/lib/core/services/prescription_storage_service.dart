@@ -42,4 +42,18 @@ class PrescriptionStorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_reportsKey, jsonEncode(current));
   }
+
+  static Future<List<Map<String, dynamic>>> getReportsBySources(
+    Set<String> sources,
+  ) async {
+    final all = await getReports();
+    if (sources.isEmpty) {
+      return all;
+    }
+
+    return all.where((item) {
+      final source = (item['source'] ?? '').toString();
+      return sources.contains(source);
+    }).toList();
+  }
 }

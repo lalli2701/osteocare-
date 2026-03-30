@@ -50,8 +50,45 @@ class SurveyService {
   }
 
   List<dynamic>? _masterQuestions;
+  Map<String, dynamic>? _englishQuestions;
   Map<String, dynamic>? _currentLanguageQuestions;
   String? _lastLoadedLanguage;
+
+  String _normalizeLanguageCode(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return 'en';
+    }
+
+    final parts = normalized.split(RegExp('[-_]'));
+    final code = parts.first;
+    if (code == 'en' || code == 'hi' || code == 'te') {
+      return code;
+    }
+    return 'en';
+  }
+
+  Future<Map<String, dynamic>> _loadEnglishQuestions() async {
+    if (_englishQuestions != null) {
+      return _englishQuestions!;
+    }
+
+    try {
+      final String jsonString = await rootBundle.loadString(
+        'assets/survey/survey_questions/en.json',
+      );
+      final decoded = jsonDecode(jsonString);
+      if (decoded is Map<String, dynamic>) {
+        _englishQuestions = decoded;
+        return _englishQuestions!;
+      }
+    } catch (_) {
+      // Keep graceful fallback behavior when bundled assets are unavailable.
+    }
+
+    _englishQuestions = <String, dynamic>{};
+    return _englishQuestions!;
+  }
 
   /// Load master questions from survey_master.json
   Future<List<dynamic>> _loadMasterQuestions() async {
@@ -98,7 +135,7 @@ class SurveyService {
   Future<String> _getLanguageCode() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getString('preferred_language') ?? 'en';
+      return _normalizeLanguageCode(prefs.getString('preferred_language') ?? 'en');
     } catch (e) {
       return 'en';
     }
@@ -107,8 +144,11 @@ class SurveyService {
   /// Merge master questions with language-specific text
   Future<List<SurveyQuestion>> getQuestions() async {
     final masterQuestions = await _loadMasterQuestions();
+    final englishQuestions = await _loadEnglishQuestions();
     final languageCode = await _getLanguageCode();
-    final languageQuestions = await _loadLanguageQuestions(languageCode);
+    final languageQuestions = languageCode == 'en'
+        ? englishQuestions
+        : await _loadLanguageQuestions(languageCode);
 
     List<SurveyQuestion> questions = [];
 
@@ -122,6 +162,11 @@ class SurveyService {
         continue;
       }
 
+      final enDataRaw = englishQuestions[fieldName];
+      final enData = enDataRaw is Map<String, dynamic>
+          ? enDataRaw
+          : <String, dynamic>{};
+
       final langDataRaw = languageQuestions[fieldName];
       final langData = langDataRaw is Map<String, dynamic>
           ? langDataRaw
@@ -133,11 +178,12 @@ class SurveyService {
         options = [];
         final masterOptions = masterRaw['options'] as List;
         final langOptions = (langData['options'] as Map<String, dynamic>?) ?? {};
+        final enOptions = (enData['options'] as Map<String, dynamic>?) ?? {};
         
         for (var optValue in masterOptions) {
           options.add({
             'value': optValue,
-            'label': langOptions[optValue] ?? optValue,
+            'label': langOptions[optValue] ?? enOptions[optValue] ?? optValue,
           });
         }
       }
@@ -155,7 +201,29 @@ class SurveyService {
             continue;
           }
           final localizedSubFields = langData['sub_fields'] as Map;
-          final subFieldLabel = localizedSubFields[subFieldName] ?? subFieldName;
+          final englishSubFields = (enData['sub_fields'] is Map)
+              ? enData['sub_fields'] as Map
+              : const {};
+          final subFieldLabel = localizedSubFields[subFieldName] ??
+              englishSubFields[subFieldName] ??
+              subFieldName;
+          subFields[subFieldName] = {
+            ...subField,
+            'label': subFieldLabel,
+          };
+        }
+      } else if (masterRaw['sub_fields'] is List && enData['sub_fields'] is Map) {
+        subFields = {};
+        final englishSubFields = enData['sub_fields'] as Map;
+        for (final subField in (masterRaw['sub_fields'] as List)) {
+          if (subField is! Map<String, dynamic>) {
+            continue;
+          }
+          final subFieldName = subField['field_name']?.toString();
+          if (subFieldName == null || subFieldName.isEmpty) {
+            continue;
+          }
+          final subFieldLabel = englishSubFields[subFieldName] ?? subFieldName;
           subFields[subFieldName] = {
             ...subField,
             'label': subFieldLabel,
@@ -169,13 +237,14 @@ class SurveyService {
             : (questions.length + 1),
         fieldName: fieldName,
         type: masterRaw['type']?.toString() ?? 'text',
-        question: langData['question']?.toString() ?? _humanizeFieldName(fieldName),
-        helpText: langData['help_text'] as String? ?? '',
+        question: (langData['question'] ?? enData['question'])?.toString() ??
+          _humanizeFieldName(fieldName),
+        helpText: (langData['help_text'] ?? enData['help_text'])?.toString() ?? '',
         options: options,
         required: masterRaw['required'] == true,
         subFields: subFields,
-        noteText: langData['note_text'] as String?,
-        infoText: langData['info_text'] as String?,
+        noteText: (langData['note_text'] ?? enData['note_text'])?.toString(),
+        infoText: (langData['info_text'] ?? enData['info_text'])?.toString(),
       );
 
       questions.add(question);
@@ -222,6 +291,7 @@ class SurveyService {
   /// Clear cache
   void clearCache() {
     _masterQuestions = null;
+    _englishQuestions = null;
     _currentLanguageQuestions = null;
     _lastLoadedLanguage = null;
   }

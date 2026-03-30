@@ -1,12 +1,13 @@
 import 'package:dio/dio.dart';
 
+import '../config/api_config.dart';
+
 class ApiClient {
   ApiClient({Dio? dio}) : _dio = dio ?? Dio();
 
   final Dio _dio;
 
-  /// Backend URL reachable from a physical Android device over USB/Wi-Fi.
-  static const String baseUrl = 'http://172.201.252.146:5000';
+  static const String baseUrl = ApiConfig.baseUrl;
 
   Future<String> sendChatMessage({
     required String userId,
