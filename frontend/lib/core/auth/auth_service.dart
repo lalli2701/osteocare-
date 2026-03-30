@@ -155,6 +155,43 @@ class AuthService {
     UserSession.instance.clear();
   }
 
+  /// Delete current user account from backend and clear local session.
+  Future<Map<String, dynamic>> deleteAccount() async {
+    try {
+      final token = await getToken();
+      if (token == null || token.isEmpty) {
+        return {'success': false, 'error': 'Not authenticated'};
+      }
+
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/user/account'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      final body = response.body.isNotEmpty
+          ? jsonDecode(response.body) as Map<String, dynamic>
+          : <String, dynamic>{};
+
+      if (response.statusCode == 200) {
+        await logout();
+        return {
+          'success': true,
+          'message': body['message']?.toString() ?? 'Account deleted',
+        };
+      }
+
+      return {
+        'success': false,
+        'error': body['error']?.toString() ?? 'Unable to delete account',
+      };
+    } catch (e) {
+      return {'success': false, 'error': 'Network error: ${e.toString()}'};
+    }
+  }
+
   /// Make authenticated API request
   Future<http.Response> authenticatedRequest({
     required String endpoint,

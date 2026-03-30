@@ -61,7 +61,12 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
   @override
   void initState() {
     super.initState();
-    _initializeHospitals();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _initializeHospitals();
+    });
   }
 
   Future<void> _initializeHospitals() async {
@@ -91,7 +96,9 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
 
     try {
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
 
       final hospitals = await _fetchNearbyHospitals(position);
@@ -101,7 +108,9 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
       }
 
       setState(() {
-        _hospitals = hospitals.isEmpty ? _buildFallbackWithDistance(position) : hospitals;
+        _hospitals = hospitals.isEmpty
+            ? _buildFallbackWithDistance(position)
+            : hospitals;
         _isLoading = false;
       });
     } catch (_) {
@@ -153,7 +162,9 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
         permission == LocationPermission.whileInUse;
   }
 
-  Future<List<Map<String, dynamic>>> _fetchNearbyHospitals(Position position) async {
+  Future<List<Map<String, dynamic>>> _fetchNearbyHospitals(
+    Position position,
+  ) async {
     final geoapifyHospitals = await _fetchNearbyHospitalsFromGeoapify(position);
     if (geoapifyHospitals.isNotEmpty) {
       return geoapifyHospitals;
@@ -175,24 +186,18 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
       return <Map<String, dynamic>>[];
     }
 
-    final uri = Uri.https(
-      'api.geoapify.com',
-      '/v2/places',
-      {
-        'categories': 'healthcare.hospital',
-        'filter': 'circle:${position.longitude},${position.latitude},20000',
-        'bias': 'proximity:${position.longitude},${position.latitude}',
-        'limit': '12',
-        'lang': context.locale.languageCode,
-        'apiKey': _geoapifyApiKey,
-      },
-    );
+    final uri = Uri.https('api.geoapify.com', '/v2/places', {
+      'categories': 'healthcare.hospital',
+      'filter': 'circle:${position.longitude},${position.latitude},20000',
+      'bias': 'proximity:${position.longitude},${position.latitude}',
+      'limit': '12',
+      'lang': context.locale.languageCode,
+      'apiKey': _geoapifyApiKey,
+    });
 
     final response = await http.get(
       uri,
-      headers: const {
-        'Accept': 'application/json',
-      },
+      headers: const {'Accept': 'application/json'},
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -204,9 +209,10 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
       return <Map<String, dynamic>>[];
     }
 
-    final features = (decoded['features'] as List<dynamic>? ?? const <dynamic>[])
-        .whereType<Map<String, dynamic>>()
-        .toList();
+    final features =
+        (decoded['features'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .toList();
 
     final hospitals = <Map<String, dynamic>>[];
     for (final feature in features) {
@@ -230,8 +236,13 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
         lng,
       );
 
-      final phone = (properties['phone'] ?? properties['contact_phone'] ?? '').toString().trim();
-      final address = (properties['formatted'] ?? properties['address_line2'] ?? '').toString().trim();
+      final phone = (properties['phone'] ?? properties['contact_phone'] ?? '')
+          .toString()
+          .trim();
+      final address =
+          (properties['formatted'] ?? properties['address_line2'] ?? '')
+              .toString()
+              .trim();
 
       hospitals.add({
         'name': name,
@@ -256,19 +267,16 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
       return <Map<String, dynamic>>[];
     }
 
-    final nearbyUri = Uri.https(
-      'maps.googleapis.com',
-      '/maps/api/place/nearbysearch/json',
-      {
-        'location': '${position.latitude},${position.longitude}',
-        'radius': '20000',
-        'type': 'hospital',
-        'keyword': 'orthopedic',
-        'rankby': 'prominence',
-        'language': context.locale.languageCode,
-        'key': _googlePlacesApiKey,
-      },
-    );
+    final nearbyUri =
+        Uri.https('maps.googleapis.com', '/maps/api/place/nearbysearch/json', {
+          'location': '${position.latitude},${position.longitude}',
+          'radius': '20000',
+          'type': 'hospital',
+          'keyword': 'orthopedic',
+          'rankby': 'prominence',
+          'language': context.locale.languageCode,
+          'key': _googlePlacesApiKey,
+        });
 
     final nearbyResponse = await http.get(nearbyUri);
     if (nearbyResponse.statusCode < 200 || nearbyResponse.statusCode >= 300) {
@@ -285,10 +293,11 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
       return <Map<String, dynamic>>[];
     }
 
-    final places = (nearbyDecoded['results'] as List<dynamic>? ?? const <dynamic>[])
-        .whereType<Map<String, dynamic>>()
-        .take(8)
-        .toList();
+    final places =
+        (nearbyDecoded['results'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .take(8)
+            .toList();
 
     final hospitals = <Map<String, dynamic>>[];
     for (final place in places) {
@@ -316,11 +325,14 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
       final details = await _fetchPlaceDetails(placeId);
 
       final ratingValue = (place['rating'] as num?)?.toDouble();
-      final rating = ratingValue == null ? 'N/A' : ratingValue.toStringAsFixed(1);
+      final rating = ratingValue == null
+          ? 'N/A'
+          : ratingValue.toStringAsFixed(1);
 
       hospitals.add({
         'name': name,
-        'address': (details['formatted_address'] ?? place['vicinity'] ?? '').toString(),
+        'address': (details['formatted_address'] ?? place['vicinity'] ?? '')
+            .toString(),
         'lat': lat,
         'lng': lng,
         'specialization': 'Orthopedics',
@@ -339,16 +351,13 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
       return <String, dynamic>{};
     }
 
-    final detailsUri = Uri.https(
-      'maps.googleapis.com',
-      '/maps/api/place/details/json',
-      {
-        'place_id': placeId,
-        'fields': 'formatted_phone_number,formatted_address',
-        'language': context.locale.languageCode,
-        'key': _googlePlacesApiKey,
-      },
-    );
+    final detailsUri =
+        Uri.https('maps.googleapis.com', '/maps/api/place/details/json', {
+          'place_id': placeId,
+          'fields': 'formatted_phone_number,formatted_address',
+          'language': context.locale.languageCode,
+          'key': _googlePlacesApiKey,
+        });
 
     final detailsResponse = await http.get(detailsUri);
     if (detailsResponse.statusCode < 200 || detailsResponse.statusCode >= 300) {
@@ -464,10 +473,7 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
     // Simple ETA estimate using 28 km/h urban speed.
     final minutes = (km / 28 * 60).round().clamp(1, 180);
 
-    return {
-      'distance': '${km.toStringAsFixed(1)} km',
-      'eta': '$minutes min',
-    };
+    return {'distance': '${km.toStringAsFixed(1)} km', 'eta': '$minutes min'};
   }
 
   Future<void> _callHospital(Map<String, dynamic> hospital) async {
@@ -477,7 +483,10 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('nearby_call_unavailable'.tr())),
+        const SnackBar(
+          content: Text('Phone number not available'),
+          duration: Duration(seconds: 2),
+        ),
       );
       return;
     }
@@ -486,7 +495,10 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
     final launched = await launchUrl(uri);
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('nearby_call_failed'.tr())),
+        const SnackBar(
+          content: Text('Unable to open phone dialer'),
+          duration: Duration(seconds: 2),
+        ),
       );
     }
   }
@@ -499,7 +511,9 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
 
     Uri uri;
     if (lat != null && lng != null) {
-      uri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving');
+      uri = Uri.parse(
+        'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
+      );
     } else {
       final query = Uri.encodeComponent('$name $address');
       uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$query');
@@ -507,9 +521,9 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
 
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('nearby_map_open_failed'.tr())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('nearby_map_open_failed'.tr())));
     }
   }
 
@@ -519,11 +533,16 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
       return;
     }
 
+    final hospitalName = (hospital['name'] ?? 'Hospital').toString();
+    final message = added
+        ? '✓ $hospitalName saved successfully'
+        : '✓ $hospitalName is already saved';
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          added ? 'saved_hospital_added'.tr(args: [(hospital['name'] ?? '').toString()]) : 'saved_hospital_exists'.tr(),
-        ),
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+        backgroundColor: added ? Colors.green : Colors.blue,
       ),
     );
   }
@@ -558,17 +577,17 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
                 OutlinedButton.icon(
                   onPressed: () => _callHospital(hospital),
                   icon: const Icon(Icons.call_outlined),
-                  label: Text('nearby_call'.tr()),
+                  label: const Text('Call'),
                 ),
                 FilledButton.icon(
                   onPressed: () => _navigateHospital(hospital),
                   icon: const Icon(Icons.navigation_outlined),
-                  label: Text('nearby_navigate'.tr()),
+                  label: const Text('Navigate'),
                 ),
                 TextButton.icon(
                   onPressed: () => _saveHospital(hospital),
                   icon: const Icon(Icons.bookmark_add_outlined),
-                  label: Text('nearby_save'.tr()),
+                  label: const Text('Save'),
                 ),
               ],
             ),
@@ -598,7 +617,9 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
             margin: const EdgeInsets.only(bottom: 10),
             child: ListTile(
               title: Text((hospital['name'] ?? '').toString()),
-              subtitle: Text('${(hospital['distance'] ?? '').toString()} • ${(hospital['eta'] ?? '').toString()}'),
+              subtitle: Text(
+                '${(hospital['distance'] ?? '').toString()} • ${(hospital['eta'] ?? '').toString()}',
+              ),
               trailing: FilledButton(
                 onPressed: () => _navigateHospital(hospital),
                 child: Text('nearby_open_map'.tr()),
@@ -613,56 +634,54 @@ class _NearbyHospitalsPageState extends State<NearbyHospitalsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('nearby_hospitals_title'.tr()),
-      ),
+      appBar: AppBar(title: Text('nearby_hospitals_title'.tr())),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(_error!, textAlign: TextAlign.center),
-                  ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(_error!, textAlign: TextAlign.center),
+              ),
+            )
+          : Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  ToggleButtons(
+                    isSelected: [
+                      _viewMode == _NearbyViewMode.list,
+                      _viewMode == _NearbyViewMode.map,
+                    ],
+                    onPressed: (index) {
+                      setState(() {
+                        _viewMode = index == 0
+                            ? _NearbyViewMode.list
+                            : _NearbyViewMode.map;
+                      });
+                    },
                     children: [
-                      ToggleButtons(
-                        isSelected: [
-                          _viewMode == _NearbyViewMode.list,
-                          _viewMode == _NearbyViewMode.map,
-                        ],
-                        onPressed: (index) {
-                          setState(() {
-                            _viewMode = index == 0 ? _NearbyViewMode.list : _NearbyViewMode.map;
-                          });
-                        },
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text('nearby_list_view'.tr()),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text('nearby_map_view'.tr()),
-                          ),
-                        ],
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text('nearby_list_view'.tr()),
                       ),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: _viewMode == _NearbyViewMode.list
-                            ? ListView(
-                                children: [
-                                  ..._hospitals.map(_buildHospitalCard),
-                                ],
-                              )
-                            : _buildMapMode(),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text('nearby_map_view'.tr()),
                       ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: _viewMode == _NearbyViewMode.list
+                        ? ListView(
+                            children: [..._hospitals.map(_buildHospitalCard)],
+                          )
+                        : _buildMapMode(),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }

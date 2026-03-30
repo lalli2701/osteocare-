@@ -3000,6 +3000,107 @@ def api_get_profile():
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
+@app.route("/api/user/account", methods=["DELETE"])
+@token_required
+def api_delete_account():
+    """Delete the authenticated user account and user-linked data."""
+    try:
+        user_id = int(request.current_user['user_id'])
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+            user_row = cur.fetchone()
+            if not user_row:
+                return jsonify({"error": "User not found"}), 404
+
+            deleted_counts = {
+                "predictions": 0,
+                "daily_tasks": 0,
+                "recommendations": 0,
+                "risk_assessments": 0,
+                "users": 0,
+            }
+
+            table_checks = [
+                "predictions",
+                "daily_tasks",
+                "recommendations",
+                "risk_assessments",
+            ]
+
+            for table_name in table_checks:
+                exists = cur.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+                    (table_name,),
+                ).fetchone()
+                if not exists:
+                    continue
+                result = cur.execute(
+                    f"DELETE FROM {table_name} WHERE user_id = ?",
+                    (str(user_id),),
+                )
+                deleted_counts[table_name] = result.rowcount
+
+            delete_user_result = cur.execute(
+                "DELETE FROM users WHERE id = ?",
+                (user_id,),
+            )
+            deleted_counts["users"] = delete_user_result.rowcount
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        mongo_deleted = {
+            "survey_submissions": 0,
+            "reminder_config": 0,
+            "reminder_history": 0,
+        }
+
+        try:
+            mongo_query = {"user_id": str(user_id)}
+
+            mongo_collection = _get_mongo_collection()
+            if mongo_collection is not None:
+                mongo_deleted["survey_submissions"] = mongo_collection.delete_many(
+                    mongo_query,
+                ).deleted_count
+
+            reminder_config_collection = _get_mongo_reminder_config_collection()
+            if reminder_config_collection is not None:
+                mongo_deleted["reminder_config"] = reminder_config_collection.delete_many(
+                    mongo_query,
+                ).deleted_count
+
+            reminder_history_collection = _get_mongo_reminder_history_collection()
+            if reminder_history_collection is not None:
+                mongo_deleted["reminder_history"] = reminder_history_collection.delete_many(
+                    mongo_query,
+                ).deleted_count
+        except Exception as mongo_exc:
+            app.logger.warning(
+                "Mongo cleanup failed for deleted user_id=%s: %s",
+                user_id,
+                mongo_exc,
+            )
+
+        return jsonify({
+            "message": "Account deleted successfully",
+            "deleted": {
+                **deleted_counts,
+                **mongo_deleted,
+            },
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
 @app.route("/api/user/preferences", methods=["POST"])
 @token_required
 def api_update_preferences():

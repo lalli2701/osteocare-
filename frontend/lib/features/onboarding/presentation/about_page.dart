@@ -1,17 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../dashboard/presentation/dashboard_page.dart';
-import '../../chatbot/presentation/assistant_fab.dart';
+import '../../dashboard/presentation/dashboard_wrapper.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
 
   static const routePath = '/about';
 
+  static const List<Map<String, String>> _team = [
+    {'name': 'Bhargav Koushik', 'role': 'Team Lead'},
+    {'name': 'Bondada Lalithanjali', 'role': 'Developer'},
+    {'name': 'Merugu Susheel Nathan', 'role': 'Developer'},
+    {'name': 'Shanmukha Sai Teja', 'role': 'Developer'},
+    {'name': 'Chaladi Divya', 'role': 'Developer'},
+    {'name': 'Penmetsa Sathwik', 'role': 'Developer'},
+  ];
+
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        title,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+
+  Widget _buildMember(String name, String role) {
+    final initial = name.trim().isEmpty ? '?' : name.trim()[0].toUpperCase();
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        radius: 20,
+        backgroundColor: const Color(0xFFEFF6FF),
+        child: Text(
+          initial,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      title: Text(name),
+      subtitle: Text(role),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -20,51 +54,80 @@ class AboutPage extends StatelessWidget {
             if (context.canPop()) {
               context.pop();
             } else {
-              context.go(DashboardPage.routePath);
+              context.go(DashboardWrapper.routePath);
             }
           },
         ),
-        title: const Text('About OsteoCare+'),
+        title: const Text('About'),
       ),
-      floatingActionButton: const AssistantFab(
-        contextHint: 'Ask anything about your bone health',
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Welcome to OsteoCare+',
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
+            Center(
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 35,
+                    backgroundColor: const Color(0xFFE8F4FF),
+                    child: Icon(
+                      Icons.health_and_safety,
+                      color: Colors.blue.shade700,
+                      size: 34,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'OsteoCare+',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'AI-Based Bone Health Screening',
+                    style: TextStyle(color: Colors.grey.shade600),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-            Text(
-              'This app helps you understand your osteoporosis risk early, learn how to protect your bones, and build daily healthy habits.',
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Important:',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 22),
+
+            _buildSectionTitle('Purpose'),
             const Text(
-              '• OsteoCare+ is an educational tool, not a medical diagnosis.\n'
-              '• Always talk to your doctor or healthcare provider about any concerns.\n'
-              '• The risk level shown is an estimate based on your answers.',
+              'OsteoCare+ helps users assess bone health risk early using AI.\n\n'
+              'It provides personalized recommendations, daily habit tracking, and guidance to prevent osteoporosis before it becomes severe.\n\n'
+              'This app is designed for awareness and prevention, not medical diagnosis.',
+              style: TextStyle(height: 1.45),
             ),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () => context.go(DashboardPage.routePath),
-                child: const Text('Continue to dashboard'),
+            const SizedBox(height: 22),
+
+            _buildSectionTitle('Built By'),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Column(
+                  children: [
+                    for (var i = 0; i < _team.length; i++) ...[
+                      _buildMember(_team[i]['name']!, _team[i]['role']!),
+                      if (i != _team.length - 1) const Divider(height: 1),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 22),
+
+            _buildSectionTitle('App Info'),
+            Card(
+              child: ListTile(
+                title: const Text('Version'),
+                trailing: Text(
+                  '1.0.0',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.blueGrey.shade700,
+                  ),
+                ),
               ),
             ),
           ],

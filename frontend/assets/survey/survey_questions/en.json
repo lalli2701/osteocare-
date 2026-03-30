@@ -1,11 +1,13 @@
 {
   "age": {
     "question": "What is your age?",
-    "help_text": "Enter your age in years (must be 18 or older)"
+    "help_text": "Enter your age in years (must be 18 or older)",
+    "info_text": "Your age helps us understand your bone health risk. Bone loss accelerates with age, especially after 50."
   },
   "gender": {
     "question": "What is your gender?",
     "help_text": "Select your gender",
+    "info_text": "Bone health differs between men and women. Women typically face higher osteoporosis risk after menopause.",
     "options": {
       "Male": "Male",
       "Female": "Female"
@@ -14,6 +16,7 @@
   "height_weight": {
     "question": "What is your height and weight?",
     "help_text": "Enter your height in feet and inches and weight in kilograms.",
+    "info_text": "We use your height and weight to calculate BMI, which indicates if your weight is healthy for your bone structure.",
     "sub_fields": {
       "height_feet": "Height (Feet)",
       "height_inches": "Height (Inches)",
@@ -23,6 +26,7 @@
   "calcium_frequency": {
     "question": "How often do you consume milk, curd, paneer, or calcium-rich foods?",
     "help_text": "Calcium intake is crucial for bone health",
+    "info_text": "How often do you consume milk, curd, paneer, or calcium-rich foods? These are the main sources of dietary calcium needed for strong bones.",
     "options": {
       "Rarely": "Rarely",
       "Sometimes": "Sometimes",
@@ -32,6 +36,7 @@
   "memory_issue": {
     "question": "Do you have serious difficulty remembering or concentrating?",
     "help_text": "Cognitive function is linked to overall health",
+    "info_text": "Difficulty with memory or concentration can indicate overall health concerns that may affect bone health and fall risk.",
     "options": {
       "Yes": "Yes",
       "No": "No"
@@ -40,6 +45,7 @@
   "mobility_climb": {
     "question": "Do you have difficulty walking or climbing stairs?",
     "help_text": "Mobility issues may indicate muscle and bone weakness",
+    "info_text": "Difficulty walking or climbing stairs can signal weak muscles and bones, increasing fracture risk.",
     "options": {
       "Yes": "Yes",
       "No": "No"
@@ -48,6 +54,7 @@
   "stand_long": {
     "question": "Do you have difficulty standing for long periods?",
     "help_text": "Standing endurance relates to bone and muscle strength",
+    "info_text": "The ability to stand for extended periods depends on bone and muscle strength, which are important for bone health.",
     "options": {
       "Yes": "Yes",
       "No": "No"
@@ -56,16 +63,17 @@
   "activity_limited": {
     "question": "Are you limited in daily physical activities due to health problems?",
     "help_text": "Physical activity limitations can affect bone density",
+    "info_text": "Physical activity is essential for maintaining bone strength. Limitations in daily activities may indicate weak bones or muscles.",
     "options": {
       "Yes": "Yes",
       "No": "No"
     }
   },
   "arthritis": {
-    "question": "Has a doctor ever told you that you have arthritis (joint disease)?",
+    "question": "Has a doctor diagnosed you with arthritis?",
     "help_text": "Arthritis is a long-term joint condition that causes pain, stiffness, or swelling, especially in knees, hips, hands, or spine.",
     "note_text": "This refers only to a diagnosis given by a doctor.",
-    "info_text": "What is arthritis?\\n\\n• A condition affecting joints\\n• Causes long-term pain or stiffness\\n• Common in older adults\\n• Includes osteoarthritis and rheumatoid arthritis\\n• This question refers to a confirmed medical diagnosis",
+    "info_text": "Arthritis is a joint disease causing pain, stiffness, or swelling. Common types include osteoarthritis (wear and tear) and rheumatoid arthritis (immune-related). This increases fracture risk.",
     "options": {
       "Yes": "Yes",
       "No": "No"
@@ -74,6 +82,7 @@
   "thyroid": {
     "question": "Have you been diagnosed with thyroid disease?",
     "help_text": "Thyroid function affects bone metabolism",
+    "info_text": "Thyroid disease affects how your body metabolizes calcium and maintains bone strength.",
     "options": {
       "Yes": "Yes",
       "No": "No"
@@ -82,6 +91,7 @@
   "lung_disease": {
     "question": "Have you been diagnosed with chronic lung disease?",
     "help_text": "Lung disease can be associated with bone health issues",
+    "info_text": "Chronic lung disease like COPD or asthma is associated with lower bone density and increased fracture risk.",
     "options": {
       "Yes": "Yes",
       "No": "No"
@@ -90,6 +100,7 @@
   "heart_failure": {
     "question": "Have you been diagnosed with congestive heart failure?",
     "help_text": "Heart conditions may affect overall bone health",
+    "info_text": "Congestive heart failure affects overall circulation and can impact bone health and your ability to remain active.",
     "options": {
       "Yes": "Yes",
       "No": "No"
@@ -98,6 +109,7 @@
   "smoking": {
     "question": "Have you smoked regularly?",
     "help_text": "Smoking accelerates bone loss",
+    "info_text": "Smoking significantly reduces bone density and accelerates bone loss, increasing fracture risk.",
     "options": {
       "Yes": "Yes",
       "No": "No"
@@ -106,6 +118,7 @@
   "alcohol": {
     "question": "How often do you drink alcohol?",
     "help_text": "Excess alcohol consumption affects bone strength",
+    "info_text": "Excessive alcohol consumption interferes with calcium absorption and reduces bone formation, weakening bones.",
     "options": {
       "None": "None",
       "Occasionally": "Occasionally",
@@ -115,6 +128,7 @@
   "general_health": {
     "question": "How would you rate your overall health?",
     "help_text": "Your overall health status influences bone health",
+    "info_text": "Your overall health reflects your bone strength and ability to maintain healthy bones. Better health generally means stronger bones.",
     "options": {
       "Excellent": "Excellent",
       "Good": "Good",

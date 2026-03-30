@@ -7,7 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/auth/auth_service.dart';
 import '../../../core/services/language_service.dart';
+import 'help_feedback_page.dart';
 import 'dashboard_wrapper.dart';
+import '../../onboarding/presentation/about_page.dart';
 import '../../onboarding/presentation/landing_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -23,7 +25,6 @@ class _ProfilePageState extends State<ProfilePage> {
   final AuthService _authService = AuthService.instance;
   String _fullName = 'Loading...';
   String _phoneNumber = 'Loading...';
-  String _createdDate = 'Loading...';
   bool _isLoading = true;
   bool _voiceEnabled = true;
   late Locale _currentLocale;
@@ -123,12 +124,6 @@ class _ProfilePageState extends State<ProfilePage> {
         setState(() {
           _fullName = data['full_name'] ?? 'User';
           _phoneNumber = data['phone_number'] ?? '';
-          _createdDate = data['created_at'] != null
-              ? DateTime.parse(data['created_at'])
-                  .toLocal()
-                  .toString()
-                  .split(' ')[0]
-              : '';
           _isLoading = false;
         });
       } else if (response.statusCode == 401) {
@@ -152,8 +147,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
@@ -190,112 +183,169 @@ class _ProfilePageState extends State<ProfilePage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'account_info'.tr(),
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+          // 1) Profile Header (compact)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: const Color(0xFFEFF6FF),
+                  child: Icon(Icons.person, color: Colors.blue.shade700),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _fullName,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _phoneNumber,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  _infoRow('full_name'.tr(), _fullName),
-                  _infoRow('phone_number'.tr(), _phoneNumber),
-                  _infoRow('profile_account_created'.tr(), _createdDate),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 24),
-          Text(
-            'settings_support'.tr(),
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
+          const SizedBox(height: 20),
+
+          // 2) Health Preferences
+          const Text(
+            'Health Preferences',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.volume_up_outlined),
+                  title: const Text('Voice Assistance'),
+                  subtitle: const Text('Read & answer via voice'),
+                  trailing: Switch(
+                    value: _voiceEnabled,
+                    onChanged: _toggleVoicePreference,
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.language),
+                  title: const Text('Language'),
+                  subtitle: Text(_getCurrentLanguageName()),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: _showLanguageSelector,
+                ),
+              ],
             ),
+          ),
+          const SizedBox(height: 18),
+
+          // 3) App Settings
+          Text(
+            'App Settings',
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
           Card(
-            child: ListTile(
-              leading: const Icon(Icons.language),
-              title: Text('language'.tr()),
-              subtitle: Text(_getCurrentLanguageName()),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: _showLanguageSelector,
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.lock_outline),
+                  title: const Text('Privacy Policy'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => context.push('/privacy'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.description_outlined),
+                  title: const Text('Terms & Conditions'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => context.push('/terms'),
+                ),
+              ],
             ),
           ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.mic),
-              title: Text('voice_features'.tr()),
-              subtitle: Text(
-                _voiceEnabled
-                    ? 'profile_voice_enabled_desc'.tr()
-                    : 'voice_disabled'.tr(),
-              ),
-              trailing: Switch(
-                value: _voiceEnabled,
-                onChanged: _toggleVoicePreference,
-              ),
-            ),
-          ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.lock),
-              title: Text('privacy_policy'.tr()),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () => context.push('/privacy'),
-            ),
-          ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.description),
-              title: Text('terms_conditions'.tr()),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () => context.push('/terms'),
-            ),
-          ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.logout, color: Colors.orange),
-              title: Text('logout'.tr()),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: _logout,
-            ),
-          ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
-              title: Text('delete_account'.tr()),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: _deleteAccount,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+          const SizedBox(height: 18),
 
-  Widget _infoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontWeight: FontWeight.w500,
-              color: Colors.grey,
+          // 4) Support
+          const Text(
+            'Support',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.chat_bubble_outline),
+                  title: const Text('Help & Feedback'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => context.push(HelpFeedbackPage.routePath),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.info_outline),
+                  title: const Text('About App'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => context.push(AboutPage.routePath),
+                ),
+              ],
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
+          const SizedBox(height: 20),
+
+          // 5) Danger Zone
+          const Text(
+            'Danger Zone',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFB42318),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.red.withValues(alpha: 0.18)),
+            ),
+            child: Column(
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.logout, color: Colors.orange),
+                  title: const Text('Logout'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: _logout,
+                ),
+                Divider(
+                  height: 1,
+                  color: Colors.red.withValues(alpha: 0.2),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('Delete Account'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: _deleteAccount,
+                ),
+              ],
             ),
           ),
         ],
@@ -348,21 +398,23 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _logout() async {
+    final pageContext = context;
     showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
+      context: pageContext,
+      builder: (dialogContext) => AlertDialog(
         title: Text('logout'.tr()),
         content: Text('logout_confirm'.tr()),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: Text('cancel'.tr()),
           ),
           TextButton(
             onPressed: () async {
+              Navigator.pop(dialogContext);
               await _authService.logout();
               if (mounted) {
-                context.go(LandingPage.routePath);
+                pageContext.go(LandingPage.routePath);
               }
             },
             child: Text('logout'.tr()),
@@ -373,23 +425,35 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _deleteAccount() async {
+    final pageContext = context;
     showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
+      context: pageContext,
+      builder: (dialogContext) => AlertDialog(
         title: Text('delete_account'.tr()),
         content: Text('delete_account_confirm'.tr()),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: Text('cancel'.tr()),
           ),
           TextButton(
             onPressed: () async {
-              // TODO: Call backend delete endpoint
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('account_deleted'.tr())),
-              );
+              Navigator.pop(dialogContext);
+              final result = await _authService.deleteAccount();
+              if (!mounted) {
+                return;
+              }
+              if (result['success'] == true) {
+                ScaffoldMessenger.of(pageContext).showSnackBar(
+                  SnackBar(content: Text('account_deleted'.tr())),
+                );
+                pageContext.go(LandingPage.routePath);
+              } else {
+                final err = result['error']?.toString() ?? 'Unable to delete account';
+                ScaffoldMessenger.of(pageContext).showSnackBar(
+                  SnackBar(content: Text(err)),
+                );
+              }
             },
             child: Text('delete'.tr(), style: const TextStyle(color: Colors.red)),
           ),

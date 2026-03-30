@@ -2,12 +2,52 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../auth/auth_service.dart';
+import '../auth/user_session.dart';
+
 class SavedHospitalService {
-  static const String _savedHospitalsKey = 'saved_hospitals_v1';
+  static const String _savedHospitalsKeyPrefix = 'saved_hospitals_v2';
+  static const String _legacySavedHospitalsKey = 'saved_hospitals_v1';
+  static const String _anonymousHospitalsKey = '${_savedHospitalsKeyPrefix}_anon';
+
+  static Future<String> _resolveStorageKey() async {
+    final sessionUid = UserSession.instance.userId?.trim();
+    if (sessionUid != null && sessionUid.isNotEmpty) {
+      return '${_savedHospitalsKeyPrefix}_$sessionUid';
+    }
+
+    final userData = await AuthService.instance.getUserData();
+    final authUid = userData?['id']?.toString().trim();
+    if (authUid != null && authUid.isNotEmpty) {
+      UserSession.instance.userId = authUid;
+      return '${_savedHospitalsKeyPrefix}_$authUid';
+    }
+
+    return _anonymousHospitalsKey;
+  }
+
+  static Future<void> _migrateLegacyIfNeeded({
+    required SharedPreferences prefs,
+    required String key,
+  }) async {
+    if (prefs.containsKey(key)) {
+      return;
+    }
+
+    final legacyRaw = prefs.getString(_legacySavedHospitalsKey);
+    if (legacyRaw == null || legacyRaw.isEmpty) {
+      return;
+    }
+
+    await prefs.setString(key, legacyRaw);
+  }
 
   static Future<List<Map<String, dynamic>>> getSavedHospitals() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_savedHospitalsKey);
+    final key = await _resolveStorageKey();
+    await _migrateLegacyIfNeeded(prefs: prefs, key: key);
+
+    final raw = prefs.getString(key);
     if (raw == null || raw.isEmpty) {
       return <Map<String, dynamic>>[];
     }
@@ -47,7 +87,9 @@ class SavedHospitalService {
     });
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_savedHospitalsKey, jsonEncode(current));
+    final key = await _resolveStorageKey();
+    await _migrateLegacyIfNeeded(prefs: prefs, key: key);
+    await prefs.setString(key, jsonEncode(current));
     return true;
   }
 
@@ -63,6 +105,8 @@ class SavedHospitalService {
     });
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_savedHospitalsKey, jsonEncode(current));
+    final key = await _resolveStorageKey();
+    await _migrateLegacyIfNeeded(prefs: prefs, key: key);
+    await prefs.setString(key, jsonEncode(current));
   }
 }

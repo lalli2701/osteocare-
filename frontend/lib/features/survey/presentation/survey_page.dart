@@ -7,9 +7,11 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../presentation/result_page.dart';
 import '../../../core/auth/auth_service.dart';
+import '../../../core/auth/user_session.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/services/local_survey_store.dart';
 import '../../../core/services/permission_service.dart';
@@ -195,7 +197,9 @@ class _SurveyPageState extends State<SurveyPage> {
     }
 
     if (question.fieldName == 'age' && hasValue) {
-      final age = (value is num) ? value.toDouble() : double.tryParse(value.toString());
+      final age = (value is num)
+          ? value.toDouble()
+          : double.tryParse(value.toString());
       if (age == null || age < 18 || age > 100) {
         return 'Age must be between 18 and 100';
       }
@@ -208,7 +212,9 @@ class _SurveyPageState extends State<SurveyPage> {
     if (value == null) {
       return null;
     }
-    final age = (value is num) ? value.toDouble() : double.tryParse(value.toString());
+    final age = (value is num)
+        ? value.toDouble()
+        : double.tryParse(value.toString());
     if (age == null) {
       return 'Please enter a valid age';
     }
@@ -300,7 +306,10 @@ class _SurveyPageState extends State<SurveyPage> {
     }
 
     final raw = value.toString().trim().toLowerCase();
-    if (raw.isEmpty || raw == 'null' || raw == 'none' || raw == 'recognitionresult.unknown') {
+    if (raw.isEmpty ||
+        raw == 'null' ||
+        raw == 'none' ||
+        raw == 'recognitionresult.unknown') {
       return '';
     }
 
@@ -389,18 +398,20 @@ class _SurveyPageState extends State<SurveyPage> {
         'survey_data': normalizedSurveyData,
       };
 
-      final response = await http.post(
-        Uri.parse('${AuthService.baseUrl}/survey/submit'),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': userId,
-          'X-API-Key': 'dev-key',
-        },
-        body: jsonEncode(surveyPayload),
-      ).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => throw Exception('Request timeout'),
-      );
+      final response = await http
+          .post(
+            Uri.parse('${AuthService.baseUrl}/survey/submit'),
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-Id': userId,
+              'X-API-Key': 'dev-key',
+            },
+            body: jsonEncode(surveyPayload),
+          )
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw Exception('Request timeout'),
+          );
 
       if (response.statusCode == 200) {
         final result = Map<String, dynamic>.from(jsonDecode(response.body));
@@ -408,13 +419,20 @@ class _SurveyPageState extends State<SurveyPage> {
           id: localRecordId,
           result: result,
         );
-        await SurveySyncService.instance.syncPendingSurveys(userId: userId);
-        await _persistAndScheduleReassessment(result);
+
+        // Do not block result navigation on non-critical background work.
+        unawaited(
+          SurveySyncService.instance.syncPendingSurveys(userId: userId),
+        );
+        unawaited(_persistAndScheduleReassessment(result));
+
         if (mounted) {
+          setState(() => _isSubmitting = false);
           context.go(ResultPage.routePath, extra: result);
         }
       } else {
-        String backendError = 'Survey submission failed: ${response.statusCode}';
+        String backendError =
+            'Survey submission failed: ${response.statusCode}';
         try {
           final errJson = jsonDecode(response.body);
           backendError = errJson['error']?.toString() ?? backendError;
@@ -450,7 +468,9 @@ class _SurveyPageState extends State<SurveyPage> {
     }
   }
 
-  Future<void> _persistAndScheduleReassessment(Map<String, dynamic> result) async {
+  Future<void> _persistAndScheduleReassessment(
+    Map<String, dynamic> result,
+  ) async {
     final riskLevel = (result['risk_level']?.toString() ?? 'Moderate').trim();
     final normalizedRisk = riskLevel.toLowerCase();
     final backendNextDate = result['next_reassessment_date']?.toString();
@@ -459,7 +479,9 @@ class _SurveyPageState extends State<SurveyPage> {
     if (backendNextDate != null && backendNextDate.isNotEmpty) {
       nextDate = DateTime.parse(backendNextDate);
     } else {
-      nextDate = DateTime.now().add(Duration(days: _getReassessmentDays(riskLevel)));
+      nextDate = DateTime.now().add(
+        Duration(days: _getReassessmentDays(riskLevel)),
+      );
     }
 
     await _storage.write(key: _riskLevelKey, value: riskLevel);
@@ -468,6 +490,70 @@ class _SurveyPageState extends State<SurveyPage> {
       value: nextDate.toIso8601String(),
     );
     await _storage.write(key: _reminderEnabledKey, value: 'true');
+
+    // Save survey history to Firestore
+    try {
+      String? uid = UserSession.instance.userId?.trim();
+      if (uid == null || uid.isEmpty) {
+        final userData = await AuthService.instance.getUserData();
+        uid = userData?['id']?.toString().trim();
+        if (uid != null && uid.isNotEmpty) {
+          UserSession.instance.userId = uid;
+        }
+      }
+
+      if (uid != null && uid.isNotEmpty) {
+        final riskScore = (result['risk_score'] as num?)?.toDouble() ?? 0.0;
+        final probability = ((result['probability'] as num?)?.toDouble() ??
+                (riskScore / 100))
+            .clamp(0.0, 1.0);
+        final topFactors = List<String>.from(
+          result['top_factors'] ?? result['factors'] ?? const <String>[],
+        );
+        final recommendedTasks = List<String>.from(
+          result['recommended_tasks'] ??
+              result['recommendations'] ??
+              result['tasks'] ??
+              const <String>[],
+        );
+        final timeGroups = Map<String, dynamic>.from(
+          result['time_groups'] ?? const <String, dynamic>{},
+        );
+        final topFactorsWithWeight = List<Map<String, dynamic>>.from(
+          result['top_factors_with_weight'] ?? const <Map<String, dynamic>>[],
+        );
+        
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('surveys')
+            .add({
+              'riskLevel': riskLevel,
+              'riskScore': riskScore,
+              'probability': probability,
+              'confidence': (result['confidence'] as num?)?.toDouble() ?? 0.5,
+              'confidenceLabel': result['confidence_label'] ?? 'Medium',
+              'confidenceBand': result['confidence_band'] ?? 'Medium',
+              'confidenceReason': result['confidence_reason'] ?? '',
+              'primaryAction': result['primary_action'] ?? '',
+              'topFactors': topFactors,
+              'recommendedTasks': recommendedTasks,
+              'topFactorsWithWeight': topFactorsWithWeight,
+              'timeGroups': timeGroups,
+              // Backward-compatible mirrors for older readers.
+              'tasks': recommendedTasks,
+              'factors': topFactors,
+              'recommendations': recommendedTasks,
+              // Preserve complete payload for detail/result screen reuse.
+              'result': result,
+              'createdAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+      }
+    } catch (e) {
+      debugPrint('Failed to save survey history to Firestore: $e');
+      // Don't block execution if Firestore save fails
+    }
 
     try {
       await NotificationService.instance.scheduleReassessmentReminder(
@@ -678,7 +764,8 @@ class _SurveyPageState extends State<SurveyPage> {
     switch (type) {
       case 'number_input':
         final ageError = fieldName == 'age'
-            ? (_questionValidationError ?? _ageValidationMessage(_formData[fieldName]))
+            ? (_questionValidationError ??
+                  _ageValidationMessage(_formData[fieldName]))
             : null;
         return TextFormField(
           key: ValueKey('${fieldName}_input'),
@@ -687,7 +774,7 @@ class _SurveyPageState extends State<SurveyPage> {
           keyboardType: const TextInputType.numberWithOptions(decimal: false),
           style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w700),
           decoration: InputDecoration(
-            hintText: '22',
+            hintText: 'Enter your age here',
             suffixText: fieldName == 'age' ? 'years' : null,
             filled: true,
             fillColor: Colors.blue.shade50,
@@ -709,8 +796,9 @@ class _SurveyPageState extends State<SurveyPage> {
             setState(() {
               final parsed = value.isEmpty ? null : int.tryParse(value);
               _formData[fieldName] = parsed;
-              _questionValidationError =
-                  fieldName == 'age' ? _ageValidationMessage(parsed) : null;
+              _questionValidationError = fieldName == 'age'
+                  ? _ageValidationMessage(parsed)
+                  : null;
             });
           },
         );
@@ -748,8 +836,6 @@ class _SurveyPageState extends State<SurveyPage> {
 
       case 'yes_no':
         final currentValue = _formData[fieldName];
-        final infoText = question.infoText;
-        final noteText = question.noteText;
 
         // For arthritis, we store boolean; for others, we store string for backward compatibility
         final isArthritis = fieldName == 'arthritis';
@@ -763,22 +849,6 @@ class _SurveyPageState extends State<SurveyPage> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (infoText != null || noteText != null)
-              Container(
-                margin: const EdgeInsets.only(bottom: 14),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  (infoText ?? noteText ?? '').replaceAll('\\n', '\n'),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.blueGrey.shade700,
-                  ),
-                ),
-              ),
             Row(
               children: [
                 Expanded(
@@ -794,8 +864,9 @@ class _SurveyPageState extends State<SurveyPage> {
                       backgroundColor: isYesSelected
                           ? Colors.blue.shade700
                           : Colors.blue.shade100,
-                      foregroundColor:
-                          isYesSelected ? Colors.white : Colors.blueGrey.shade900,
+                      foregroundColor: isYesSelected
+                          ? Colors.white
+                          : Colors.blueGrey.shade900,
                       padding: const EdgeInsets.symmetric(vertical: 18),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
@@ -818,8 +889,9 @@ class _SurveyPageState extends State<SurveyPage> {
                       backgroundColor: isNoSelected
                           ? Colors.blue.shade700
                           : Colors.blue.shade100,
-                      foregroundColor:
-                          isNoSelected ? Colors.white : Colors.blueGrey.shade900,
+                      foregroundColor: isNoSelected
+                          ? Colors.white
+                          : Colors.blueGrey.shade900,
                       padding: const EdgeInsets.symmetric(vertical: 18),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
@@ -861,7 +933,7 @@ class _SurveyPageState extends State<SurveyPage> {
 
         final isComplete = feet != null && inches != null && weight != null;
         final heightWeightError =
-          _questionValidationError ?? _heightWeightValidationMessage();
+            _questionValidationError ?? _heightWeightValidationMessage();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -924,10 +996,7 @@ class _SurveyPageState extends State<SurveyPage> {
             const SizedBox(height: 14),
             Text(
               'Weight: ${weight?.toStringAsFixed(1) ?? '--'} kg',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
             Slider(
               value: (weight ?? 60).clamp(25, 220),
@@ -937,7 +1006,9 @@ class _SurveyPageState extends State<SurveyPage> {
               label: '${(weight ?? 60).toStringAsFixed(1)} kg',
               onChanged: (value) {
                 setState(() {
-                  _formData['weight_kg'] = double.parse(value.toStringAsFixed(1));
+                  _formData['weight_kg'] = double.parse(
+                    value.toStringAsFixed(1),
+                  );
                   _questionValidationError = _heightWeightValidationMessage();
                 });
               },
@@ -976,10 +1047,7 @@ class _SurveyPageState extends State<SurveyPage> {
                     const SizedBox(height: 8),
                     Text(
                       'BMI is calculated for general health reference and is not a diagnostic measurement.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     ),
                   ],
                 ),
@@ -996,13 +1064,19 @@ class _SurveyPageState extends State<SurveyPage> {
           ],
         );
 
-
       default:
         return Text('Unknown question type: $type');
     }
   }
 
   Widget _buildGuidedQuestionStep(SurveyQuestion question) {
+    final explanatoryText =
+        (question.infoText?.trim().isNotEmpty ?? false)
+            ? question.infoText!.trim()
+            : ((question.noteText?.trim().isNotEmpty ?? false)
+                  ? question.noteText!.trim()
+                  : '');
+
     return Column(
       key: ValueKey('${question.fieldName}_step_$_currentQuestionIndex'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1034,30 +1108,54 @@ class _SurveyPageState extends State<SurveyPage> {
             ),
             IconButton(
               tooltip: 'Read question',
-              onPressed: _isListening ? null : () => _speakCurrentQuestion(question),
+              onPressed: _isListening
+                  ? null
+                  : () => _speakCurrentQuestion(question),
               icon: Icon(
-                _isSpeakingQuestion ? Icons.volume_up_rounded : Icons.volume_up_outlined,
+                _isSpeakingQuestion
+                    ? Icons.volume_up_rounded
+                    : Icons.volume_up_outlined,
                 color: Colors.blue.shade700,
               ),
             ),
           ],
         ),
+        // Keep explanatory text between heading and input for every question.
+        if (explanatoryText.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              border: Border.all(color: Colors.blue.shade200),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              explanatoryText.replaceAll('\\n', '\n'),
+              textAlign: TextAlign.left,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.blueGrey.shade700,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
         if (question.helpText.isNotEmpty) ...[
           const SizedBox(height: 10),
           Text(
             question.helpText,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.blueGrey.shade500,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.blueGrey.shade500),
           ),
         ],
         const Spacer(),
         _buildQuestionInput(question),
         const SizedBox(height: 12),
         OutlinedButton.icon(
-          onPressed: _isSpeakingQuestion ? null : () => _captureVoiceAnswer(question),
+          onPressed: _isSpeakingQuestion
+              ? null
+              : () => _captureVoiceAnswer(question),
           icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
           label: Text(_isListening ? 'Listening...' : 'Speak your answer'),
           style: OutlinedButton.styleFrom(
@@ -1070,15 +1168,20 @@ class _SurveyPageState extends State<SurveyPage> {
           Text(
             _voiceStatusMessage!,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.blueGrey.shade600,
-            ),
+            style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade600),
           ),
         ],
         const Spacer(),
       ],
     );
+  }
+
+  void _navigateBack() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/dashboard');
+    }
   }
 
   @override
@@ -1088,13 +1191,7 @@ class _SurveyPageState extends State<SurveyPage> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              if (context.canPop()) {
-                context.pop();
-              } else {
-                context.go('/dashboard');
-              }
-            },
+            onPressed: _navigateBack,
           ),
           title: const Text('Bone Health Survey'),
         ),
@@ -1107,13 +1204,7 @@ class _SurveyPageState extends State<SurveyPage> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              if (context.canPop()) {
-                context.pop();
-              } else {
-                context.go('/dashboard');
-              }
-            },
+            onPressed: _navigateBack,
           ),
           title: const Text('Bone Health Survey'),
         ),
@@ -1144,13 +1235,7 @@ class _SurveyPageState extends State<SurveyPage> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              if (context.canPop()) {
-                context.pop();
-              } else {
-                context.go('/dashboard');
-              }
-            },
+            onPressed: _navigateBack,
           ),
           title: const Text('Bone Health Survey'),
         ),
@@ -1195,15 +1280,7 @@ class _SurveyPageState extends State<SurveyPage> {
                 Row(
                   children: [
                     IconButton(
-                      onPressed: () {
-                        if (_currentQuestionIndex > 0) {
-                          _previousQuestion();
-                        } else if (context.canPop()) {
-                          context.pop();
-                        } else {
-                          context.go('/dashboard');
-                        }
-                      },
+                      onPressed: _navigateBack,
                       icon: const Icon(Icons.arrow_back_ios_new_rounded),
                     ),
                     Expanded(
@@ -1277,8 +1354,9 @@ class _SurveyPageState extends State<SurveyPage> {
                           width: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
                       : Text(
@@ -1321,4 +1399,3 @@ class _SurveyPageState extends State<SurveyPage> {
     super.dispose();
   }
 }
-

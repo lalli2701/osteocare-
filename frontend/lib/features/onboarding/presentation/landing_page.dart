@@ -225,10 +225,18 @@ class _LandingPageState extends State<LandingPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'select_language'.tr(),
+                            'Choose your preferred language',
                             style: theme.textTheme.titleMedium?.copyWith(
                               color: textPrimary,
                               fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'You can change this anytime in settings',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: textSecondary,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                           const SizedBox(height: 10),
